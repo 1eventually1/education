@@ -1,0 +1,6 @@
+flask>=3.1
+flask-cors>=6.0
+flask-sqlalchemy>=3.1
+flask-bcrypt>=1.0
+requests>=2.32
+pillow>=12.0

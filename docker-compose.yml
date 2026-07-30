@@ -1,0 +1,23 @@
+services:
+  tutor:
+    build: .
+    container_name: tutor-homework
+    ports:
+      - "5500:5500"
+    volumes:
+      - ./frontend:/app/frontend:ro
+      - ./uploads:/app/uploads
+      - ./data:/app/data
+      - ./output:/app/output
+      - ./tmp:/app/tmp
+    environment:
+      - DATABASE_PATH=/app/data/tutor.db
+      - UPLOAD_FOLDER=/app/uploads
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      - LLM_MODEL=${LLM_MODEL:-qwen3.7-plus}
+      - LLM_IMAGE_MAX_SIDE=${LLM_IMAGE_MAX_SIDE:-1200}
+      - LLM_IMAGE_QUALITY=${LLM_IMAGE_QUALITY:-85}
+      - LLM_HIGH_ACCURACY=${LLM_HIGH_ACCURACY:-1}
+      - LLM_ENABLE_THINKING=${LLM_ENABLE_THINKING:-1}
+    restart: unless-stopped
