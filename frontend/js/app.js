@@ -70,6 +70,9 @@ function switchTab(t) {
     if (t==='courseware') loadCourseware();
     if (t==='homework') loadHomeworks();
     if (t==='qa') loadQuestions();
+    requestAnimationFrame(() => {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
 }
 
 // ====== Courseware ======

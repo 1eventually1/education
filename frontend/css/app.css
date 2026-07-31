@@ -1687,9 +1687,15 @@ body {
     }
 
     .sidebar {
-        position: static;
+        position: sticky;
+        top: 0;
+        z-index: 80;
         height: auto;
-        padding: 18px;
+        padding: 14px 18px;
+        background: rgba(245, 250, 255, 0.96);
+        border-right: 0;
+        border-bottom: 1px solid rgba(86, 137, 212, 0.24);
+        box-shadow: 0 14px 34px rgba(40, 78, 132, 0.16);
     }
 
     .side-brand,
@@ -1700,14 +1706,49 @@ body {
 
     .side-nav.tabs {
         grid-template-columns: repeat(4, 1fr);
-        gap: 8px;
+        gap: 10px;
+        margin: 0;
     }
 
     .side-nav .tab-btn {
         justify-content: center;
-        min-height: 46px;
-        padding: 0 10px;
+        min-height: 58px;
+        padding: 7px 8px;
+        flex-direction: column;
+        gap: 5px;
+        border: 1px solid rgba(81, 126, 193, 0.30);
+        background: rgba(255, 255, 255, 0.92);
+        color: #294a73;
         font-size: 13px;
+        line-height: 1.15;
+        box-shadow: 0 8px 18px rgba(62, 102, 157, 0.10);
+    }
+
+    .side-nav .tab-btn:hover {
+        background: #ffffff;
+        color: #1c6fe8;
+        border-color: rgba(47, 128, 255, 0.42);
+    }
+
+    .side-nav .tab-btn.active {
+        background: linear-gradient(135deg, #1d73f6, #0f5fe0);
+        color: #ffffff;
+        border-color: #0f5fe0;
+        box-shadow: 0 14px 28px rgba(20, 99, 232, 0.30);
+        transform: translateY(-1px);
+    }
+
+    .side-nav .nav-icon {
+        width: 30px;
+        height: 30px;
+        border-radius: 10px;
+        background: rgba(47, 128, 255, 0.13);
+        color: inherit;
+        font-size: 12px;
+    }
+
+    .side-nav .tab-btn.active .nav-icon {
+        background: rgba(255, 255, 255, 0.22);
     }
 
     .muted-nav {
@@ -1715,7 +1756,7 @@ body {
     }
 
     .main-stage {
-        padding: 26px 18px;
+        padding: 28px 18px;
     }
 
     .hero-card,
@@ -1734,6 +1775,27 @@ body {
 }
 
 @media (max-width: 680px) {
+    .sidebar {
+        padding: 12px 14px;
+    }
+
+    .side-nav.tabs {
+        gap: 8px;
+    }
+
+    .side-nav .tab-btn {
+        min-height: 54px;
+        padding: 6px 5px;
+        font-size: 12px;
+    }
+
+    .side-nav .nav-icon {
+        width: 28px;
+        height: 28px;
+        border-radius: 9px;
+        font-size: 11px;
+    }
+
     .topbar {
         align-items: flex-start;
     }
