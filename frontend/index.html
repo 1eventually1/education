@@ -267,13 +267,13 @@
                         </select>
                     </div>
                     <div class="upload-zone" onclick="document.getElementById('qaFile').click()">
-                        <div id="qaUploadHint"><strong>拍照或选择题目图片</strong><span>拍清楚题干、选项和图表</span></div>
+                        <div id="qaUploadHint"><strong>拍照或选择题目图片</strong><span>可不上传图片，直接在下方输入问题</span></div>
                         <img id="qaPreview" class="preview-img hidden" alt="">
                     </div>
                     <input type="file" id="qaFile" accept="image/*" capture="environment" class="hidden" onchange="previewQa(event)">
                     <div class="form-group">
                         <label>孩子卡在哪里</label>
-                        <textarea id="qaText" placeholder="例如：氧化剂和还原剂怎么判断？"></textarea>
+                        <textarea id="qaText" placeholder="例如：氧化剂和还原剂怎么判断？没有图片也可以直接提问。"></textarea>
                     </div>
                     <button id="qaBtn" class="btn btn-success btn-block" onclick="askQuestion()">开始答疑</button>
                 </div>
@@ -285,7 +285,7 @@
                             <button id="qaClearBtn" class="btn btn-muted btn-small hidden" onclick="clearAnswer()">关闭</button>
                         </div>
 	                    </div>
-	                    <div id="qaAnswer" class="answer-content">拍下题目点击"开始答疑"，AI 会识别题目并给出完整的讲解。</div>
+	                    <div id="qaAnswer" class="answer-content">上传题目图片或直接输入问题，点击"开始答疑"后 AI 会给出讲解。</div>
 	                    <div id="followupBox" class="followup-box hidden">
 	                        <textarea id="followupText" placeholder="继续追问这道题，例如：为什么这里最近的是 Ni？这个 1/2 是怎么来的？"></textarea>
 	                        <div class="followup-actions">

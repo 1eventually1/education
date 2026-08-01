@@ -236,7 +236,8 @@ function previewQa(e) {
 
 async function askQuestion() {
     const file = document.getElementById('qaFile').files[0];
-    if (!file) return toast('请先上传题目图片','err');
+    const questionText = document.getElementById('qaText').value.trim();
+    if (!file && !questionText) return toast('请上传题目图片，或输入需要答疑的问题','err');
     const btn = document.getElementById('qaBtn');
     btn.disabled = true; btn.textContent = 'AI 正在解题...';
     document.getElementById('qaModel').textContent = '思考中';
@@ -245,8 +246,8 @@ async function askQuestion() {
 
     const fd = new FormData();
     fd.append('subject', document.getElementById('qaSubject').value);
-    fd.append('question_text', document.getElementById('qaText').value.trim());
-    fd.append('file', file);
+    fd.append('question_text', questionText);
+    if (file) fd.append('file', file);
 
     try {
         const r = await fetch(`${API}/api/questions/ask`, { method:'POST', credentials:'include', body: fd });
@@ -822,7 +823,7 @@ async function askFollowup() {
 function clearAnswer() {
     currentQuestionId = null;
     document.getElementById('qaModel').textContent = '等待提问';
-    document.getElementById('qaAnswer').innerHTML = '拍下题目点击"开始答疑"，AI 会识别题目并给出完整的讲解。';
+    document.getElementById('qaAnswer').innerHTML = '上传题目图片或直接输入问题，点击"开始答疑"后 AI 会给出讲解。';
     document.getElementById('qaClearBtn').classList.add('hidden');
     document.getElementById('followupBox').classList.add('hidden');
     document.getElementById('followupText').value = '';

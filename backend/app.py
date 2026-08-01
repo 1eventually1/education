@@ -188,15 +188,15 @@ def build_payload_from_prompt(image_path, prompt):
     if not api_key or not base_url:
         return None, None, None, '未配置大模型 API Key'
 
-    mime_type, encoded = encode_image_for_llm(image_path)
+    content = [{'type': 'text', 'text': prompt}]
+    if image_path:
+        mime_type, encoded = encode_image_for_llm(image_path)
+        content.append({'type': 'image_url', 'image_url': {'url': f'data:{mime_type};base64,{encoded}'}})
 
     high_accuracy = env_flag('LLM_HIGH_ACCURACY', '1')
     payload = {
         'model': model,
-        'messages': [{'role': 'user', 'content': [
-            {'type': 'text', 'text': prompt},
-            {'type': 'image_url', 'image_url': {'url': f'data:{mime_type};base64,{encoded}'}}
-        ]}],
+        'messages': [{'role': 'user', 'content': content}],
         'temperature': 0.1 if high_accuracy else 0.2,
         'max_tokens': env_int('LLM_MAX_TOKENS', 2200 if high_accuracy else 1800)
     }
@@ -206,12 +206,14 @@ def build_payload_from_prompt(image_path, prompt):
     return base_url, api_key, model, payload
 
 def build_vision_payload(image_path, subject, question_text):
+    input_mode = '题目图片 + 文字补充' if image_path else '纯文字问题'
     prompt = (
-        '你是一位高效、准确的高中化学家教。请识别题目图片并解答，要求：\n'
-        '1. 不要长篇复述题干，只提取解题必须信息；图片不清楚时直接指出。\n'
-        '2. 必须展示给学生看的推理过程：条件提取、公式/原理选择、关键判断、必要计算。\n'
-        '3. 选择题只分析关键选项；计算题保留关键公式和代入过程。\n'
-        '4. 化学式、离子、电荷、分数、反应箭头要用规范可读写法。\n\n'
+        '你是一位高效、准确的高中化学教师。请根据学生提供的图片或文字问题解答，要求：\n'
+        '1. 如果有图片，先识别题目图片；如果没有图片，就直接根据文字问题回答。不要要求学生必须上传图片。\n'
+        '2. 不要长篇复述题干，只提取解题必须信息；图片不清楚或文字条件不足时直接指出需要补充什么。\n'
+        '3. 必须展示给学生看的推理过程：条件提取、公式/原理选择、关键判断、必要计算。\n'
+        '4. 选择题只分析关键选项；计算题保留关键公式和代入过程。\n'
+        '5. 化学式、离子、电荷、分数、反应箭头要用规范可读写法。\n\n'
         '遇到复杂晶胞或有机推断题，要先自查关键风险点：晶胞粒子数/配位数/密度公式，'
         '有机题的不饱和度/官能团/反应类型/同分异构，不能确定时明确说明不确定原因。\n\n'
         '请用以下结构回答：\n'
@@ -219,7 +221,7 @@ def build_vision_payload(image_path, subject, question_text):
         '## 推理过程\n3-6步讲清条件怎么用、为什么选这个方法、怎么算到答案。\n\n'
         '## 答案\n给出最终答案。\n\n'
         '## 易错点\n最多2条。'
-        f'\n\n科目：{subject}\n孩子的问题：{question_text or "请完整讲解"}'
+        f'\n\n输入方式：{input_mode}\n科目：{subject}\n孩子的问题：{question_text or "请完整讲解"}'
     )
     return build_payload_from_prompt(image_path, prompt)
 
@@ -243,7 +245,8 @@ def build_followup_payload(question, followups, prompt):
         '## 推理过程\n解释关键原因、条件怎么用、必要推理或计算。\n\n'
         '## 小提醒\n一句话指出容易混淆点。'
     )
-    return build_payload_from_prompt(os.path.join(UPLOAD_FOLDER, question.filename), full_prompt)
+    image_path = os.path.join(UPLOAD_FOLDER, question.filename) if question.filename else None
+    return build_payload_from_prompt(image_path, full_prompt)
 
 def post_llm_stream(base_url, api_key, payload):
     try:
@@ -585,17 +588,21 @@ def ask_question():
     subject = request.form.get('subject', '化学')
     question_text = request.form.get('question_text', '').strip()
     file = request.files.get('file')
-    if not file: return jsonify({'error': '请上传题目图片'}), 400
+    if not file and not question_text:
+        return jsonify({'error': '请上传题目图片，或输入需要答疑的问题'}), 400
 
-    ext = (file.filename.rsplit('.', 1)[-1] if '.' in file.filename else 'jpg').lower()
-    if ext not in ALLOWED_IMAGE: return jsonify({'error': '仅支持图片'}), 400
-    file.seek(0, os.SEEK_END)
-    if file.tell() > MAX_FILE_SIZE: return jsonify({'error': f'文件不能超过{MAX_FILE_SIZE//1024//1024}MB'}), 400
-    file.seek(0)
+    safe_name = ''
+    filepath = None
+    if file:
+        ext = (file.filename.rsplit('.', 1)[-1] if '.' in file.filename else 'jpg').lower()
+        if ext not in ALLOWED_IMAGE: return jsonify({'error': '仅支持图片'}), 400
+        file.seek(0, os.SEEK_END)
+        if file.tell() > MAX_FILE_SIZE: return jsonify({'error': f'文件不能超过{MAX_FILE_SIZE//1024//1024}MB'}), 400
+        file.seek(0)
 
-    safe_name = f"qa_{uuid.uuid4().hex}.{ext}"
-    filepath = os.path.join(UPLOAD_FOLDER, safe_name)
-    file.save(filepath)
+        safe_name = f"qa_{uuid.uuid4().hex}.{ext}"
+        filepath = os.path.join(UPLOAD_FOLDER, safe_name)
+        file.save(filepath)
 
     record_uid = uuid.uuid4().hex[:8]
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
