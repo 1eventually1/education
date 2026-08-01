@@ -1859,8 +1859,21 @@ body {
 
     .hero-card,
     .dash-body,
+    .qa-layout,
+    .upload-layout,
     .ai-home-row {
         grid-template-columns: 1fr;
+    }
+
+    .qa-layout {
+        gap: 18px;
+    }
+
+    .answer-panel {
+        width: 100%;
+        min-width: 0;
+        max-height: none;
+        min-height: 360px;
     }
 
     .hero-illustration {
@@ -1934,5 +1947,15 @@ body {
     .robot-illus {
         width: 100%;
         min-height: 170px;
+    }
+
+    .answer-toolbar {
+        align-items: flex-start;
+        gap: 10px;
+    }
+
+    .answer-content {
+        word-break: break-word;
+        overflow-wrap: anywhere;
     }
 }

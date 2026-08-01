@@ -723,7 +723,7 @@ async function viewAnswer(id) {
     document.getElementById('qaAnswer').innerHTML = renderQuestionConversation(q);
     document.getElementById('qaClearBtn').classList.remove('hidden');
     showFollowupBox(id);
-    window.scrollTo({ top: 300, behavior: 'smooth' });
+    document.querySelector('.answer-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function renderQuestionConversation(q) {
