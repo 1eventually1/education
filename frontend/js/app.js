@@ -77,6 +77,12 @@ function switchTab(t) {
     });
 }
 
+function activateHomeCard(event, tab) {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    switchTab(tab);
+}
+
 // ====== Courseware ======
 function filterCourseware(subj) {
     cwFilter = subj;

@@ -114,10 +114,10 @@
                 </div>
             </section>
 
-            <section class="dashboard-card dashboard-course">
+            <section class="dashboard-card dashboard-course home-jump-card" role="button" tabindex="0" onclick="switchTab('courseware')" onkeydown="activateHomeCard(event, 'courseware')">
                 <div class="dash-head">
                     <div><span class="step-dot">1</span><h2>今日课程内容</h2></div>
-                    <button class="ghost-link" onclick="switchTab('courseware')">查看全部</button>
+                    <button class="ghost-link" onclick="event.stopPropagation(); switchTab('courseware')">查看全部</button>
                 </div>
                 <div class="dash-body">
                     <div class="book-cover chemistry-cover">
@@ -138,26 +138,26 @@
                 </div>
             </section>
 
-            <section class="dashboard-card dashboard-homework">
+            <section class="dashboard-card dashboard-homework home-jump-card" role="button" tabindex="0" onclick="switchTab('homework')" onkeydown="activateHomeCard(event, 'homework')">
                 <div class="dash-head">
                     <div><span class="step-dot green">2</span><h2>作业提交</h2></div>
-                    <button class="ghost-link green" onclick="switchTab('homework')">上传作业</button>
+                    <button class="ghost-link green" onclick="event.stopPropagation(); switchTab('homework')">上传作业</button>
                 </div>
                 <div class="dash-body">
                     <div class="clipboard-illus"></div>
                     <div class="dash-copy">
                         <h3>今日作业（化学）<em>待提交</em></h3>
                         <p>完成课后练习，拍照上传后老师可批改并留下评语。</p>
-                        <button class="btn btn-success" onclick="switchTab('homework')">上传作业</button>
+                        <button class="btn btn-success" onclick="event.stopPropagation(); switchTab('homework')">上传作业</button>
                         <div class="note-box"><b>作业要求</b><br>支持图片格式，大小不超过 20MB。</div>
                     </div>
                 </div>
             </section>
 
-            <section class="dashboard-card dashboard-ai">
+            <section class="dashboard-card dashboard-ai home-jump-card" role="button" tabindex="0" onclick="switchTab('qa')" onkeydown="activateHomeCard(event, 'qa')">
                 <div class="dash-head">
                     <div><span class="step-dot purple">3</span><h2>AI老师咨询</h2></div>
-                    <button class="ghost-link purple" onclick="switchTab('qa')">开始答疑</button>
+                    <button class="ghost-link purple" onclick="event.stopPropagation(); switchTab('qa')">开始答疑</button>
                 </div>
                 <div class="ai-home-row">
                     <div class="robot-illus"></div>
@@ -169,7 +169,7 @@
                             <span>有机推断从哪一步突破？</span>
                             <span>这题哪里容易错？</span>
                         </div>
-                        <button class="ask-strip" onclick="switchTab('qa')">输入你的问题...</button>
+                        <button class="ask-strip" onclick="event.stopPropagation(); switchTab('qa')">输入你的问题...</button>
                     </div>
                 </div>
             </section>

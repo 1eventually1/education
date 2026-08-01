@@ -1382,6 +1382,29 @@ body {
     display: none;
 }
 
+.home-jump-card {
+    cursor: pointer;
+    transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease, background-color .18s ease;
+}
+
+.home-jump-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(47, 128, 255, 0.42);
+    box-shadow: 0 26px 54px rgba(58, 100, 162, 0.18);
+}
+
+.home-jump-card:focus-visible {
+    outline: 3px solid rgba(47, 128, 255, 0.34);
+    outline-offset: 4px;
+}
+
+.home-jump-card .ghost-link,
+.home-jump-card .btn,
+.home-jump-card .ask-strip {
+    position: relative;
+    z-index: 1;
+}
+
 .dashboard-homework {
     border-color: rgba(73, 207, 152, 0.38);
     background: linear-gradient(135deg, rgba(241,255,249,0.86), rgba(255,255,255,0.88));
