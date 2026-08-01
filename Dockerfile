@@ -10,8 +10,6 @@ COPY frontend/ ./frontend/
 
 RUN mkdir -p uploads output tmp
 
-VOLUME ["/app/uploads", "/app/backend"]
-
 EXPOSE 5500
 
 CMD ["python", "backend/app.py"]

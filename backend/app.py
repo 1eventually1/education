@@ -411,9 +411,8 @@ def register():
     data = request.get_json()
     username = data.get('username', '').strip()
     password = data.get('password', '')
-    display_name = data.get('display_name', '').strip() or username
-    if len(username) < 2: return jsonify({'error': '用户名至少2个字符'}), 400
-    if len(password) < 4: return jsonify({'error': '密码至少4个字符'}), 400
+    display_name = username
+    if not username or not password: return jsonify({'error': '请填写用户名和密码'}), 400
     if User.query.filter_by(username=username).first():
         return jsonify({'error': '用户名已存在'}), 409
 

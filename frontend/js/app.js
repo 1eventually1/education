@@ -47,9 +47,10 @@ async function login() {
 }
 
 async function register() {
-    const username = document.getElementById('regUser').value.trim(), display_name = document.getElementById('regName').value.trim(), password = document.getElementById('regPass').value;
+    const username = document.getElementById('regUser').value.trim(), password = document.getElementById('regPass').value, confirm = document.getElementById('regPassConfirm').value;
     if (!username||!password) return authErr('regErr','请填写用户名和密码');
-    const r = await fetch(`${API}/api/register`, { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify({username,password,display_name}) });
+    if (password !== confirm) return authErr('regErr','两次输入的密码不一致');
+    const r = await fetch(`${API}/api/register`, { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify({username,password}) });
     const d = await r.json();
     r.ok ? showApp(d.user) : authErr('regErr', d.error);
 }
