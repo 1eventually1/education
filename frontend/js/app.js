@@ -19,6 +19,7 @@ function showApp(user) {
     document.getElementById('authPage').classList.add('hidden');
     document.getElementById('app').classList.remove('hidden');
     document.getElementById('dispName').textContent = user.display_name || user.username;
+    document.getElementById('mobileDispName').textContent = user.display_name || user.username;
     document.getElementById('heroName').textContent = user.display_name || user.username;
     document.getElementById('todayChip').textContent = formatToday();
     const tag = document.getElementById('roleTag');

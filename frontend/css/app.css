@@ -1170,6 +1170,10 @@ body {
     font-size: 12px;
 }
 
+.mobile-session-bar {
+    display: none;
+}
+
 .streak-card {
     margin-top: auto;
     padding: 22px 18px;
@@ -1751,6 +1755,46 @@ body {
         background: rgba(255, 255, 255, 0.22);
     }
 
+    .mobile-session-bar {
+        min-height: 42px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-top: 10px;
+        padding: 9px 12px;
+        border: 1px solid rgba(81, 126, 193, 0.22);
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.92);
+        color: #365372;
+        font-size: 13px;
+        font-weight: 800;
+        box-shadow: 0 8px 18px rgba(62, 102, 157, 0.09);
+    }
+
+    .mobile-session-bar span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .mobile-session-bar b {
+        color: #1e3554;
+    }
+
+    .mobile-session-bar button {
+        flex: 0 0 auto;
+        min-height: 30px;
+        padding: 0 12px;
+        border-radius: 999px;
+        background: #fff1f1;
+        color: #c73535;
+        font-size: 12px;
+        font-weight: 900;
+        box-shadow: inset 0 0 0 1px rgba(199, 53, 53, 0.18);
+    }
+
     .muted-nav {
         display: none !important;
     }
@@ -1794,6 +1838,16 @@ body {
         height: 28px;
         border-radius: 9px;
         font-size: 11px;
+    }
+
+    .mobile-session-bar {
+        margin-top: 8px;
+        padding: 8px 10px;
+        font-size: 12px;
+    }
+
+    .mobile-session-bar button {
+        padding: 0 10px;
     }
 
     .topbar {
