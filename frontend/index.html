@@ -192,17 +192,11 @@
     <div id="tab-courseware" class="tab-content">
         <div class="panel">
             <div class="section-head">
-                <div><h2>课程课件</h2><p>按科目浏览老师上传的课件资料，点击下载查看。</p></div>
+                <div><h2>化学课件</h2><p>按日期查看最近上传的化学课件，点击即可打开资料。</p></div>
                 <button class="btn btn-muted btn-small" onclick="loadCourseware()">刷新</button>
             </div>
             <div class="subject-filter" id="cwSubjectFilter">
-                <button class="subject-chip active" onclick="filterCourseware('')">全部</button>
-                <button class="subject-chip" onclick="filterCourseware('化学')">化学</button>
-                <button class="subject-chip" onclick="filterCourseware('数学')">数学</button>
-                <button class="subject-chip" onclick="filterCourseware('物理')">物理</button>
-                <button class="subject-chip" onclick="filterCourseware('英语')">英语</button>
-                <button class="subject-chip" onclick="filterCourseware('语文')">语文</button>
-                <button class="subject-chip" onclick="filterCourseware('生物')">生物</button>
+                <button class="subject-chip active" onclick="filterCourseware('')">最近</button>
             </div>
             <div id="cwList" class="cw-grid"></div>
             <div id="cwUpload" class="cw-upload hidden">

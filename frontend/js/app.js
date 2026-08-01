@@ -26,6 +26,7 @@ function showApp(user) {
     tag.textContent = user.role === 'teacher' ? '教师' : '学生';
     tag.className = `role-badge ${user.role}`;
     document.getElementById('hwName').value = user.display_name || user.username;
+    document.getElementById('cwDate').value = todayValue();
     document.getElementById('cwUpload').classList.toggle('hidden', user.role !== 'teacher');
     switchTab('home');
 }
@@ -84,24 +85,24 @@ function activateHomeCard(event, tab) {
 }
 
 // ====== Courseware ======
-function filterCourseware(subj) {
-    cwFilter = subj;
-    document.querySelectorAll('#cwSubjectFilter .subject-chip').forEach(c => c.classList.toggle('active', c.textContent===subj||(subj===''&&c.textContent==='全部')));
+function filterCourseware(date) {
+    cwFilter = date;
     loadCourseware();
 }
 
 async function loadCourseware() {
     const el = document.getElementById('cwList');
     el.innerHTML = '<div class="empty-msg">加载中...</div>';
-    const url = cwFilter ? `${API}/api/courseware?subject=${encodeURIComponent(cwFilter)}` : `${API}/api/courseware`;
+    const url = cwFilter ? `${API}/api/courseware?date=${encodeURIComponent(cwFilter)}` : `${API}/api/courseware`;
     const r = await fetch(url, { credentials:'include' });
     const d = await r.json();
+    renderCoursewareDateFilter(d.dates || []);
     if (!d.coursewares.length) { el.innerHTML = '<div class="empty-msg">暂无课件</div>'; return; }
     el.innerHTML = d.coursewares.map(c => `
         <div class="cw-card">
             <div>
                 <h3>${esc(c.title)}</h3>
-                <p class="meta">${esc(c.subject)} · ${esc(c.original_name)} · ${esc(c.upload_time)}</p>
+                <p class="meta">化学 · ${esc(formatDateLabel(c.course_date))} · ${esc(c.original_name)} · 上传于 ${esc(c.upload_time)}</p>
             </div>
             <div style="display:flex;gap:6px;">
                 <a href="${API}/uploads/${esc(c.filename)}" target="_blank" class="btn btn-primary btn-small" style="text-decoration:none;">查看</a>
@@ -111,18 +112,41 @@ async function loadCourseware() {
     `).join('');
 }
 
+function renderCoursewareDateFilter(dates) {
+    const filter = document.getElementById('cwSubjectFilter');
+    const items = ['<button class="subject-chip" onclick="filterCourseware(\'\')">最近</button>']
+        .concat(dates.map(day => `<button class="subject-chip" onclick="filterCourseware('${esc(day)}')">${esc(formatDateLabel(day))}</button>`));
+    filter.innerHTML = items.join('');
+    filter.querySelectorAll('.subject-chip').forEach((chip, idx) => {
+        const active = idx === 0 ? !cwFilter : chip.textContent === formatDateLabel(cwFilter);
+        chip.classList.toggle('active', active);
+    });
+}
+
 async function uploadCourseware() {
     const title = document.getElementById('cwTitle').value.trim();
-    const subject = document.getElementById('cwSubject').value;
+    const courseDate = document.getElementById('cwDate').value || todayValue();
     const file = document.getElementById('cwFile').files[0];
     if (!title) return toast('请输入标题','err');
+    if (!courseDate) return toast('请选择日期','err');
     if (!file) return toast('请选择文件','err');
     const fd = new FormData();
-    fd.append('title', title); fd.append('subject', subject); fd.append('file', file);
+    fd.append('title', title); fd.append('course_date', courseDate); fd.append('file', file);
     const r = await fetch(`${API}/api/courseware/upload`, { method:'POST', credentials:'include', body: fd });
     const d = await r.json();
-    if (r.ok) { document.getElementById('cwTitle').value=''; document.getElementById('cwFile').value=''; loadCourseware(); }
+    if (r.ok) {
+        document.getElementById('cwTitle').value='';
+        document.getElementById('cwFile').value='';
+        updateCoursewareFileName();
+        cwFilter = courseDate;
+        loadCourseware();
+    }
     toast(d.message||d.error, r.ok?'ok':'err');
+}
+
+function updateCoursewareFileName() {
+    const file = document.getElementById('cwFile').files[0];
+    document.getElementById('cwFileName').textContent = file ? file.name : '还没有选择文件';
 }
 
 async function delCw(id) {
@@ -809,6 +833,18 @@ function formatToday() {
     const d = new Date();
     const weekdays = ['周日','周一','周二','周三','周四','周五','周六'];
     return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日　${weekdays[d.getDay()]}`;
+}
+function todayValue() {
+    const d = new Date();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${d.getFullYear()}-${month}-${day}`;
+}
+function formatDateLabel(value) {
+    if (!value) return '';
+    const [year, month, day] = String(value).split('-');
+    if (!year || !month || !day) return String(value);
+    return `${Number(month)}月${Number(day)}日`;
 }
 function esc(s) { return String(s??'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function toast(msg, type) { const t = document.createElement('div'); t.className=`toast ${type}`; t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(),2600); }

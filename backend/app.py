@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime, timedelta
 from functools import wraps
 from io import BytesIO
+from sqlalchemy import inspect, or_, text
 
 try:
     from PIL import Image, ImageOps
@@ -54,6 +55,7 @@ class Courseware(db.Model):
     uid = db.Column(db.String(12), unique=True, nullable=False)
     title = db.Column(db.String(200), nullable=False)
     subject = db.Column(db.String(50), nullable=False)
+    course_date = db.Column(db.String(20), nullable=True)
     filename = db.Column(db.String(200), nullable=False)
     original_name = db.Column(db.String(200), nullable=False)
     upload_time = db.Column(db.String(30), nullable=False)
@@ -101,6 +103,10 @@ class QuestionFollowup(db.Model):
 
 with app.app_context():
     db.create_all()
+    cw_columns = {col['name'] for col in inspect(db.engine).get_columns('coursewares')}
+    if 'course_date' not in cw_columns:
+        db.session.execute(text('ALTER TABLE coursewares ADD COLUMN course_date VARCHAR(20)'))
+        db.session.commit()
     for username, pwd, role, display in [
         ('teacher', 'admin123', 'teacher', '张老师'),
         ('student1', '123456', 'student', '小明'),
@@ -112,7 +118,7 @@ with app.app_context():
 # ====== 序列化 ======
 
 def ser_cw(c):
-    return {'id': c.uid, 'title': c.title, 'subject': c.subject, 'filename': c.filename, 'original_name': c.original_name, 'upload_time': c.upload_time}
+    return {'id': c.uid, 'title': c.title, 'subject': c.subject, 'course_date': c.course_date or c.upload_time[:10], 'filename': c.filename, 'original_name': c.original_name, 'upload_time': c.upload_time}
 
 def ser_hw(h):
     return {'id': h.uid, 'student_name': h.student_name, 'subject': h.subject, 'filename': h.filename, 'upload_time': h.upload_time, 'status': h.status, 'comment': h.comment}
@@ -450,19 +456,38 @@ def me():
 @app.route('/api/courseware', methods=['GET'])
 @login_required
 def list_courseware():
-    subject = request.args.get('subject', '').strip()
-    q = Courseware.query.order_by(Courseware.id.desc())
-    if subject: q = q.filter_by(subject=subject)
-    return jsonify({'coursewares': [ser_cw(c) for c in q.all()]})
+    date_filter = request.args.get('date', '').strip()
+    user = User.query.get(session['user_id'])
+    q = Courseware.query.filter_by(subject='化学')
+    if user.role == 'teacher':
+        q = q.filter_by(uploaded_by=user.id)
+    if date_filter:
+        q = q.filter(or_(Courseware.course_date == date_filter, Courseware.upload_time.like(f'{date_filter}%')))
+    records = q.order_by(Courseware.id.desc()).all()
+
+    date_q = Courseware.query.filter_by(subject='化学')
+    if user.role == 'teacher':
+        date_q = date_q.filter_by(uploaded_by=user.id)
+    date_records = date_q.order_by(Courseware.id.desc()).all()
+    dates = []
+    for item in date_records:
+        day = item.course_date or item.upload_time[:10]
+        if day and day not in dates:
+            dates.append(day)
+
+    if not date_filter:
+        records = records[:8]
+    return jsonify({'coursewares': [ser_cw(c) for c in records], 'dates': dates[:12]})
 
 @app.route('/api/courseware/upload', methods=['POST'])
 @teacher_required
 def upload_courseware():
     title = request.form.get('title', '').strip()
-    subject = request.form.get('subject', '').strip()
+    subject = '化学'
+    course_date = request.form.get('course_date', '').strip() or datetime.now().strftime('%Y-%m-%d')
     file = request.files.get('file')
     if not title: return jsonify({'error': '请输入课件标题'}), 400
-    if not subject: return jsonify({'error': '请选择科目'}), 400
+    if not course_date: return jsonify({'error': '请选择课程日期'}), 400
     if not file: return jsonify({'error': '请选择文件'}), 400
 
     ext = (file.filename.rsplit('.', 1)[-1] if '.' in file.filename else '').lower()
@@ -472,7 +497,7 @@ def upload_courseware():
     safe_name = f"cw_{uuid.uuid4().hex}.{ext}"
     file.save(os.path.join(UPLOAD_FOLDER, safe_name))
 
-    cw = Courseware(uid=uuid.uuid4().hex[:8], title=title, subject=subject,
+    cw = Courseware(uid=uuid.uuid4().hex[:8], title=title, subject=subject, course_date=course_date,
                     filename=safe_name, original_name=file.filename,
                     upload_time=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                     uploaded_by=session['user_id'])
