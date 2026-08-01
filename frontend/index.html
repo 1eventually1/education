@@ -206,15 +206,14 @@
                         <label>标题</label><input type="text" id="cwTitle" placeholder="例如：氧化还原反应（一）">
                     </div>
                     <div class="form-group" style="min-width:120px;margin:0;">
-                        <label>科目</label>
-                        <select id="cwSubject">
-                            <option value="化学">化学</option><option value="数学">数学</option><option value="物理">物理</option>
-                            <option value="英语">英语</option><option value="语文">语文</option><option value="生物">生物</option>
-                        </select>
+                        <label>日期</label>
+                        <input type="date" id="cwDate">
                     </div>
-                    <div class="form-group" style="margin:0;">
+                    <div class="form-group cw-file-field" style="margin:0;">
                         <label>文件</label>
-                        <input type="file" id="cwFile" accept=".pdf,.ppt,.pptx,.doc,.docx,.jpg,.jpeg,.png" style="padding:8px;">
+                        <input type="file" id="cwFile" accept=".pdf,.ppt,.pptx,.doc,.docx,.jpg,.jpeg,.png" class="hidden" onchange="updateCoursewareFileName()">
+                        <button type="button" class="file-picker-btn" onclick="document.getElementById('cwFile').click()">选择文件</button>
+                        <span id="cwFileName" class="file-picked-name">还没有选择文件</span>
                     </div>
                     <button class="btn btn-primary" onclick="uploadCourseware()" style="margin-bottom:1px;">上传</button>
                 </div>
