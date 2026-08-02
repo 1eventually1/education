@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>家教学习助手</title>
+    <title>科研训练平台</title>
     <script>
         window.MathJax = {
             tex: {
@@ -24,15 +24,15 @@
 <!-- ====== Auth ====== -->
 <div id="authPage" class="auth-shell">
     <div class="auth-box">
-        <h1>家教学习助手</h1>
-        <p>查看课件、提交作业、拍照答疑，一站式学习辅导。</p>
+        <h1>科研训练平台</h1>
+        <p>课件、作业、AI答疑，一站式学习辅导</p>
         <div class="auth-tabs">
             <button class="auth-tab active" onclick="switchAuth('login')">登录</button>
             <button class="auth-tab" onclick="switchAuth('register')">注册学生</button>
         </div>
         <div id="form-login" class="auth-form active">
-            <div class="form-group"><label>用户名</label><input type="text" id="loginUser" placeholder="用户名" value="student1"></div>
-            <div class="form-group"><label>密码</label><input type="password" id="loginPass" placeholder="密码" value="123456"></div>
+            <div class="form-group"><label>用户名</label><input type="text" id="loginUser" placeholder="用户名" value="eventually"></div>
+            <div class="form-group"><label>密码</label><input type="password" id="loginPass" placeholder="密码" value="eventually"></div>
             <button class="btn btn-primary btn-block" onclick="login()">登录</button>
             <div id="loginErr" class="auth-error"></div>
             <div class="auth-switch">没有账号？<button onclick="switchAuth('register')">注册学生</button></div>
@@ -41,19 +41,19 @@
             <div class="form-group"><label>账号</label><input type="text" id="regUser" placeholder="设置账号"></div>
             <div class="form-group"><label>密码</label><input type="password" id="regPass" placeholder="设置密码"></div>
             <div class="form-group"><label>确认密码</label><input type="password" id="regPassConfirm" placeholder="再输入一次密码"></div>
-            <button class="btn btn-success btn-block" onclick="register()">注册并进入</button>
+            <button class="btn btn-primary btn-block" onclick="register()">注册并进入</button>
             <div id="regErr" class="auth-error"></div>
             <div class="auth-switch">已有账号？<button onclick="switchAuth('login')">返回登录</button></div>
         </div>
     </div>
 </div>
 
-<!-- ====== Main App ====== -->
+<!-- ====== App ====== -->
 <div id="app" class="app-shell hidden">
     <aside class="sidebar">
         <div class="side-brand">
-            <div class="brand-mark"></div>
-            <h1>家教课后监督平台</h1>
+            <div class="brand-mark">学</div>
+            <h1>科研训练平台</h1>
             <p>学习有监督 · 成长看得见</p>
         </div>
 
@@ -61,17 +61,12 @@
             <button class="tab-btn active" onclick="switchTab('home')"><span class="nav-icon">H</span>首页</button>
             <button class="tab-btn" onclick="switchTab('courseware')"><span class="nav-icon">C</span>课程内容</button>
             <button class="tab-btn" onclick="switchTab('homework')"><span class="nav-icon">W</span>作业提交</button>
-            <button class="tab-btn" onclick="switchTab('qa')"><span class="nav-icon">AI</span>AI老师咨询</button>
-            <button class="tab-btn muted-nav" onclick="switchTab('home')"><span class="nav-icon">R</span>学习报告</button>
-            <button class="tab-btn muted-nav" onclick="switchTab('home')"><span class="nav-icon">N</span>消息通知 <span class="nav-badge">3</span></button>
+            <button class="tab-btn" onclick="switchTab('qa')"><span class="nav-icon">AI</span>AI答疑</button>
+            <button class="tab-btn" onclick="switchTab('report')"><span class="nav-icon">R</span>学习报告</button>
+            <button class="tab-btn muted-nav" onclick="switchTab('home')"><span class="nav-icon">N</span>消息通知<span class="nav-badge">3</span></button>
             <button class="tab-btn muted-nav" onclick="switchTab('home')"><span class="nav-icon">P</span>个人中心</button>
             <button class="tab-btn muted-nav" onclick="switchTab('home')"><span class="nav-icon">S</span>设置</button>
         </nav>
-
-        <div class="mobile-session-bar">
-            <span>当前账号：<b id="mobileDispName"></b></span>
-            <button onclick="logout()">退出账号</button>
-        </div>
 
         <div class="streak-card">
             <div class="medal-icon"></div>
@@ -88,6 +83,11 @@
         </div>
     </aside>
 
+    <div class="mobile-session-bar">
+        <span>当前账号：<b id="mobileDispName"></b></span>
+        <button onclick="logout()">退出</button>
+    </div>
+
     <main class="main-stage">
         <div class="topbar">
             <div>
@@ -97,7 +97,7 @@
             <div class="date-chip" id="todayChip">今日</div>
         </div>
 
-        <!-- ====== 首页 ====== -->
+        <!-- ====== Home ====== -->
         <div id="tab-home" class="tab-content active">
             <section class="hero-card">
                 <div>
@@ -114,15 +114,14 @@
                 </div>
             </section>
 
-            <section class="dashboard-card dashboard-course home-jump-card" role="button" tabindex="0" onclick="switchTab('courseware')" onkeydown="activateHomeCard(event, 'courseware')">
+            <section class="dashboard-card home-jump-card" onclick="switchTab('courseware')">
                 <div class="dash-head">
                     <div><span class="step-dot">1</span><h2>今日课程内容</h2></div>
                     <button class="ghost-link" onclick="event.stopPropagation(); switchTab('courseware')">查看全部</button>
                 </div>
                 <div class="dash-body">
                     <div class="book-cover chemistry-cover">
-                        <strong>化学</strong>
-                        <span>CHEMISTRY</span>
+                        <strong>化学</strong><span>CHEMISTRY</span>
                     </div>
                     <div class="dash-copy">
                         <h3>高中化学重点突破</h3>
@@ -138,7 +137,7 @@
                 </div>
             </section>
 
-            <section class="dashboard-card dashboard-homework home-jump-card" role="button" tabindex="0" onclick="switchTab('homework')" onkeydown="activateHomeCard(event, 'homework')">
+            <section class="dashboard-card home-jump-card" onclick="switchTab('homework')">
                 <div class="dash-head">
                     <div><span class="step-dot green">2</span><h2>作业提交</h2></div>
                     <button class="ghost-link green" onclick="event.stopPropagation(); switchTab('homework')">上传作业</button>
@@ -148,13 +147,13 @@
                     <div class="dash-copy">
                         <h3>今日作业（化学）<em>待提交</em></h3>
                         <p>完成课后练习，拍照上传后老师可批改并留下评语。</p>
-                        <button class="btn btn-success" onclick="event.stopPropagation(); switchTab('homework')">上传作业</button>
+                        <button class="btn btn-primary" onclick="event.stopPropagation(); switchTab('homework')">上传作业</button>
                         <div class="note-box"><b>作业要求</b><br>支持图片格式，大小不超过 20MB。</div>
                     </div>
                 </div>
             </section>
 
-            <section class="dashboard-card dashboard-ai home-jump-card" role="button" tabindex="0" onclick="switchTab('qa')" onkeydown="activateHomeCard(event, 'qa')">
+            <section class="dashboard-card home-jump-card" onclick="switchTab('qa')">
                 <div class="dash-head">
                     <div><span class="step-dot purple">3</span><h2>AI老师咨询</h2></div>
                     <button class="ghost-link purple" onclick="event.stopPropagation(); switchTab('qa')">开始答疑</button>
@@ -163,7 +162,7 @@
                     <div class="robot-illus"></div>
                     <div class="dash-copy">
                         <h3>有问题？问AI老师</h3>
-                        <p>拍下题目，系统会识别题干、展示推理过程，并支持继续追问。</p>
+                        <p>拍下题目，AI会识别题干、展示推理过程，并支持继续追问。</p>
                         <div class="prompt-pills">
                             <span>复杂晶胞怎么数？</span>
                             <span>有机推断从哪一步突破？</span>
@@ -173,134 +172,142 @@
                     </div>
                 </div>
             </section>
-
-            <section class="stats-card">
-                <div class="dash-head">
-                    <div><h2>学习数据总览</h2></div>
-                    <button class="ghost-link" onclick="switchTab('homework')">查看详情</button>
-                </div>
-                <div class="stats-grid">
-                    <div><span>学习时长</span><strong>2.6</strong><em>小时 / 今日</em></div>
-                    <div><span>完成课程</span><strong>3</strong><em>节 / 今日</em></div>
-                    <div><span>提交作业</span><strong>2</strong><em>份 / 本周</em></div>
-                    <div><span>正确率</span><strong>86</strong><em>% / 本周</em></div>
-                </div>
-            </section>
         </div>
 
-    <!-- ====== 课程课件 ====== -->
-    <div id="tab-courseware" class="tab-content">
-        <div class="panel">
-            <div class="section-head">
-                <div><h2>化学课件</h2><p>按日期查看最近上传的化学课件，点击即可打开资料。</p></div>
-                <button class="btn btn-muted btn-small" onclick="loadCourseware()">刷新</button>
-            </div>
-            <div class="subject-filter" id="cwSubjectFilter">
-                <button class="subject-chip active" onclick="filterCourseware('')">最近</button>
-            </div>
-            <div id="cwList" class="cw-grid"></div>
-            <div id="cwUpload" class="cw-upload hidden">
-                <h3 style="margin-bottom:10px;">上传课件</h3>
-                <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
-                    <div class="form-group" style="flex:1;min-width:150px;margin:0;">
-                        <label>标题</label><input type="text" id="cwTitle" placeholder="例如：氧化还原反应（一）">
-                    </div>
-                    <div class="form-group" style="min-width:120px;margin:0;">
-                        <label>日期</label>
-                        <input type="date" id="cwDate">
-                    </div>
-                    <div class="form-group cw-file-field" style="margin:0;">
-                        <label>文件</label>
-                        <input type="file" id="cwFile" accept=".pdf,.ppt,.pptx,.doc,.docx,.jpg,.jpeg,.png" class="hidden" onchange="updateCoursewareFileName()">
-                        <button type="button" class="file-picker-btn" onclick="document.getElementById('cwFile').click()">选择文件</button>
-                        <span id="cwFileName" class="file-picked-name">还没有选择文件</span>
-                    </div>
-                    <button class="btn btn-primary" onclick="uploadCourseware()" style="margin-bottom:1px;">上传</button>
+        <!-- ====== Courseware ====== -->
+        <div id="tab-courseware" class="tab-content">
+            <div class="panel">
+                <div class="section-head">
+                    <div><h2>化学课件</h2><p>按日期查看最近上传的化学课件，点击即可打开资料。</p></div>
+                    <button class="btn btn-muted btn-small" onclick="loadCourseware()">刷新</button>
                 </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- ====== 作业监督 ====== -->
-    <div id="tab-homework" class="tab-content">
-        <div class="panel">
-            <div class="section-head">
-                <div><h2>作业监督</h2><p>上传作业照片，老师批改后这里会显示状态和评语。</p></div>
-                <button class="btn btn-muted btn-small" onclick="loadHomeworks()">刷新</button>
-            </div>
-            <div class="upload-layout">
-                <div>
-                    <div class="form-group"><label>姓名</label><input type="text" id="hwName" placeholder="学生姓名"></div>
-                    <div class="form-group">
-                        <label>科目</label>
-                        <select id="hwSubject">
-                            <option value="化学">化学</option><option value="数学">数学</option><option value="物理">物理</option>
-                            <option value="英语">英语</option><option value="语文">语文</option><option value="生物">生物</option><option value="其他">其他</option>
-                        </select>
-                    </div>
-                    <div class="upload-zone" onclick="document.getElementById('hwFile').click()">
-                        <div id="hwUploadHint"><strong>拍照或选择图片</strong><span>支持 JPG/PNG，≤20MB</span></div>
-                        <img id="hwPreview" class="preview-img hidden" alt="">
-                    </div>
-                    <input type="file" id="hwFile" accept="image/*" capture="environment" class="hidden" onchange="previewHw(event)">
-                    <button class="btn btn-primary btn-block" style="margin-top:12px;" onclick="uploadHomework()">提交作业</button>
+                <div class="subject-filter" id="cwSubjectFilter">
+                    <button class="subject-chip active" onclick="filterCourseware('')">最近</button>
                 </div>
-                <div id="hwList"><div class="empty-msg">正在加载...</div></div>
-            </div>
-        </div>
-    </div>
-
-    <!-- ====== 拍照答疑 ====== -->
-    <div id="tab-qa" class="tab-content">
-        <div class="panel">
-            <div class="section-head">
-                <div><h2>拍照答疑</h2><p>拍下题目，补充孩子卡住的地方，AI 会给出分步骤讲解。</p></div>
-                <button class="btn btn-muted btn-small" onclick="loadQuestions()">刷新历史</button>
-            </div>
-            <div class="qa-layout">
-                <div>
-                    <div class="form-group">
-                        <label>科目</label>
-                        <select id="qaSubject">
-                            <option value="化学">化学</option><option value="数学">数学</option><option value="物理">物理</option>
-                            <option value="生物">生物</option><option value="英语">英语</option>
-                        </select>
-                    </div>
-                    <div class="upload-zone" onclick="document.getElementById('qaFile').click()">
-                        <div id="qaUploadHint"><strong>拍照或选择题目图片</strong><span>可不上传图片，直接在下方输入问题</span></div>
-                        <img id="qaPreview" class="preview-img hidden" alt="">
-                    </div>
-                    <input type="file" id="qaFile" accept="image/*" capture="environment" class="hidden" onchange="previewQa(event)">
-                    <div class="form-group">
-                        <label>孩子卡在哪里</label>
-                        <textarea id="qaText" placeholder="例如：氧化剂和还原剂怎么判断？没有图片也可以直接提问。"></textarea>
-                    </div>
-                    <button id="qaBtn" class="btn btn-success btn-block" onclick="askQuestion()">开始答疑</button>
-                </div>
-                <div class="answer-panel">
-                    <div class="answer-toolbar">
-                        <strong>答疑结果</strong>
-                        <div style="display:flex;align-items:center;gap:8px;">
-                            <span id="qaModel" class="model-chip">等待提问</span>
-                            <button id="qaClearBtn" class="btn btn-muted btn-small hidden" onclick="clearAnswer()">关闭</button>
+                <div id="cwList" class="cw-grid"></div>
+                <div id="cwUpload" class="cw-upload hidden">
+                    <h3>上传课件</h3>
+                    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+                        <div class="form-group" style="flex:1;min-width:150px;margin:0;"><label>标题</label><input type="text" id="cwTitle" placeholder="例如：氧化还原反应（一）"></div>
+                        <div class="form-group" style="min-width:120px;margin:0;"><label>日期</label><input type="date" id="cwDate"></div>
+                        <div class="form-group cw-file-field" style="margin:0;">
+                            <label>文件</label>
+                            <input type="file" id="cwFile" accept=".pdf,.ppt,.pptx,.doc,.docx,.jpg,.jpeg,.png" class="hidden" onchange="updateCoursewareFileName()">
+                            <button type="button" class="file-picker-btn" onclick="document.getElementById('cwFile').click()">选择文件</button>
+                            <span id="cwFileName" class="file-picked-name">还没有选择文件</span>
                         </div>
-	                    </div>
-	                    <div id="qaAnswer" class="answer-content">上传题目图片或直接输入问题，点击"开始答疑"后 AI 会给出讲解。</div>
-	                    <div id="followupBox" class="followup-box hidden">
-	                        <textarea id="followupText" placeholder="继续追问这道题，例如：为什么这里最近的是 Ni？这个 1/2 是怎么来的？"></textarea>
-	                        <div class="followup-actions">
-	                            <span id="followupHint">追问会保存到当前题目记录里</span>
-	                            <button id="followupBtn" class="btn btn-primary btn-small" onclick="askFollowup()">继续追问</button>
-	                        </div>
-	                    </div>
-	                </div>
+                        <button class="btn btn-primary" onclick="uploadCourseware()" style="margin-bottom:1px;">上传</button>
+                    </div>
+                </div>
             </div>
         </div>
-        <div class="panel">
-            <div class="section-head"><div><h2>答疑记录</h2></div></div>
-            <div id="qaHistory" class="history-list"></div>
+
+        <!-- ====== Homework ====== -->
+        <div id="tab-homework" class="tab-content">
+            <div class="panel">
+                <div class="section-head">
+                    <div><h2>作业提交</h2><p>上传作业照片，老师批改后这里会显示状态和评语。</p></div>
+                    <button class="btn btn-muted btn-small" onclick="loadHomeworks()">刷新</button>
+                </div>
+                <div class="upload-layout">
+                    <div>
+                        <div class="form-group"><label>姓名</label><input type="text" id="hwName" placeholder="学生姓名"></div>
+                        <div class="form-group">
+                            <label>科目</label>
+                            <select id="hwSubject">
+                                <option value="化学">化学</option><option value="数学">数学</option><option value="物理">物理</option>
+                                <option value="英语">英语</option>
+                            </select>
+                        </div>
+                        <div class="upload-zone" onclick="document.getElementById('hwFile').click()">
+                            <div id="hwUploadHint"><strong>拍照或选择图片</strong><span>支持 JPG/PNG，≤20MB</span></div>
+                            <img id="hwPreview" class="preview-img hidden" alt="">
+                        </div>
+                        <input type="file" id="hwFile" accept="image/*" capture="environment" class="hidden" onchange="previewHw(event)">
+                        <button class="btn btn-primary btn-block" style="margin-top:12px;" onclick="uploadHomework()">提交作业</button>
+                    </div>
+                    <div id="hwList"><div class="empty-msg">正在加载...</div></div>
+                </div>
+            </div>
         </div>
-    </div>
+
+        <!-- ====== Learning Report ====== -->
+        <div id="tab-report" class="tab-content">
+            <div class="panel">
+                <div class="section-head report-head">
+                    <div><h2>学习报告</h2><p>选择时间范围，查看学习进度、错题风险和下一步建议。</p></div>
+                    <div class="report-controls">
+                        <select id="reportDays" onchange="loadReport()">
+                            <option value="3">最近3天</option>
+                            <option value="7" selected>最近一周</option>
+                            <option value="14">最近两周</option>
+                            <option value="30">最近30天</option>
+                        </select>
+                        <select id="reportStudent" class="hidden" onchange="loadReport()"></select>
+                        <button class="btn btn-muted btn-small" onclick="loadReport()">查看上次报告</button>
+                        <button class="btn btn-primary btn-small" onclick="loadReport(true)">重新生成</button>
+                    </div>
+                </div>
+                <div id="reportBody" class="report-body"><div class="empty-msg">正在生成学习报告...</div></div>
+            </div>
+        </div>
+
+        <!-- ====== Photo Q&A ====== -->
+        <div id="tab-qa" class="tab-content">
+            <div class="panel">
+                <div class="section-head">
+                    <div><h2>拍照答疑</h2><p>拍下题目，补充卡住的地方，AI会给出分步骤讲解。</p></div>
+                    <button class="btn btn-muted btn-small" onclick="loadQuestions()">刷新历史</button>
+                </div>
+                <div class="qa-layout">
+                    <div>
+                        <div class="form-group">
+                            <label>科目</label>
+                            <select id="qaSubject">
+                                <option value="化学">化学</option><option value="数学">数学</option><option value="物理">物理</option>
+                                <option value="英语">英语</option>
+                            </select>
+                        </div>
+                        <div class="upload-zone" onclick="document.getElementById('qaFile').click()">
+                            <div id="qaUploadHint"><strong>拍照或选择题目图片</strong><span>可不上传，直接在下方输入问题</span></div>
+                            <img id="qaPreview" class="preview-img hidden" alt="">
+                        </div>
+                        <input type="file" id="qaFile" accept="image/*" capture="environment" class="hidden" onchange="previewQa(event)">
+                        <div class="form-group">
+                            <label>卡在哪里</label>
+                            <textarea id="qaText" placeholder="例如：氧化剂和还原剂怎么判断？没有图片也可以直接提问。"></textarea>
+                        </div>
+                        <button id="qaBtn" class="btn btn-primary btn-block" onclick="askQuestion()">开始答疑</button>
+                    </div>
+                    <div class="answer-panel">
+                        <div class="answer-toolbar">
+                            <strong>答疑结果</strong>
+                            <div style="display:flex;align-items:center;gap:8px;">
+                                <span id="qaModel" class="model-chip">等待提问</span>
+                                <button id="qaClearBtn" class="btn btn-muted btn-small hidden" onclick="clearAnswer()">关闭</button>
+                            </div>
+                        </div>
+                        <div id="qaAnswer" class="answer-content">上传题目或直接输入问题，点击「开始答疑」后AI会给出讲解。</div>
+                        <div id="followupBox" class="followup-box hidden">
+                            <textarea id="followupText" placeholder="继续追问这道题，例如：为什么这里最近的是Ni？"></textarea>
+                            <div class="followup-actions">
+                                <span id="followupHint">追问会保存到当前题目记录里</span>
+                                <button id="followupBtn" class="btn btn-primary btn-small" onclick="askFollowup()">继续追问</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="panel">
+                <div class="section-head">
+                    <div><h2>答疑记录</h2></div>
+                    <select id="qaHistoryDate" class="history-date-select" onchange="renderQuestionsHistory()">
+                        <option value="">全部日期</option>
+                    </select>
+                </div>
+                <div id="qaHistory" class="history-list"></div>
+            </div>
+        </div>
     </main>
 </div>
 

@@ -20,4 +20,5 @@ services:
       - LLM_IMAGE_QUALITY=${LLM_IMAGE_QUALITY:-85}
       - LLM_HIGH_ACCURACY=${LLM_HIGH_ACCURACY:-1}
       - LLM_ENABLE_THINKING=${LLM_ENABLE_THINKING:-1}
+      - APP_TIMEZONE=${APP_TIMEZONE:-Asia/Shanghai}
     restart: unless-stopped

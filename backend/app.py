@@ -6,12 +6,14 @@ import base64
 import json
 import mimetypes
 import os
+import re
 import requests
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 from io import BytesIO
 from sqlalchemy import inspect, or_, text
+from zoneinfo import ZoneInfo
 
 try:
     from PIL import Image, ImageOps
@@ -36,7 +38,9 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 ALLOWED_IMAGE = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'}
 ALLOWED_COURSEWARE = {'pdf', 'ppt', 'pptx', 'doc', 'docx', 'jpg', 'jpeg', 'png'}
+ALLOWED_SUBJECTS = {'数学', '物理', '化学', '英语'}
 MAX_FILE_SIZE = 20 * 1024 * 1024
+APP_TIMEZONE = os.getenv('APP_TIMEZONE', 'Asia/Shanghai')
 
 # ====== 模型 ======
 
@@ -99,6 +103,16 @@ class QuestionFollowup(db.Model):
     model_name = db.Column(db.String(80), default='')
     created_at = db.Column(db.String(30), nullable=False)
 
+class LearningReportCache(db.Model):
+    __tablename__ = 'learning_report_caches'
+    id = db.Column(db.Integer, primary_key=True)
+    cache_key = db.Column(db.String(120), unique=True, nullable=False)
+    owner_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    days = db.Column(db.Integer, nullable=False)
+    target_student_id = db.Column(db.Integer, nullable=True)
+    report_json = db.Column(db.Text, nullable=False)
+    generated_at = db.Column(db.String(30), nullable=False)
+
 # ====== 初始化 ======
 
 with app.app_context():
@@ -108,7 +122,7 @@ with app.app_context():
         db.session.execute(text('ALTER TABLE coursewares ADD COLUMN course_date VARCHAR(20)'))
         db.session.commit()
     for username, pwd, role, display in [
-        ('teacher', 'admin123', 'teacher', '张老师'),
+        ('eventually', 'eventually', 'teacher', 'eventually'),
         ('student1', '123456', 'student', '小明'),
     ]:
         if not User.query.filter_by(username=username).first():
@@ -116,6 +130,47 @@ with app.app_context():
     db.session.commit()
 
 # ====== 序列化 ======
+
+def app_timezone():
+    try:
+        return ZoneInfo(APP_TIMEZONE)
+    except Exception:
+        return ZoneInfo('Asia/Shanghai')
+
+def utc_now_text():
+    return datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+
+def local_time_text(value):
+    if not value:
+        return ''
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        try:
+            dt = datetime.strptime(str(value)[:19], '%Y-%m-%d %H:%M:%S')
+        except ValueError:
+            return str(value)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(app_timezone()).strftime('%Y-%m-%d %H:%M:%S')
+
+def local_datetime(value):
+    text_value = local_time_text(value)
+    if not text_value:
+        return None
+    try:
+        return datetime.strptime(text_value[:19], '%Y-%m-%d %H:%M:%S')
+    except ValueError:
+        return None
+
+def local_date_text(value):
+    dt = local_datetime(value)
+    return dt.strftime('%Y-%m-%d') if dt else ''
+
+def date_in_range(day, start_day, end_day):
+    if not day:
+        return False
+    return start_day <= day <= end_day
 
 def ser_cw(c):
     return {'id': c.uid, 'title': c.title, 'subject': c.subject, 'course_date': c.course_date or c.upload_time[:10], 'filename': c.filename, 'original_name': c.original_name, 'upload_time': c.upload_time}
@@ -133,7 +188,7 @@ def ser_qa(q):
         'question_text': q.question_text,
         'answer': q.answer,
         'model_name': q.model_name,
-        'created_at': q.created_at,
+        'created_at': local_time_text(q.created_at),
         'followups': [ser_followup(f) for f in followups]
     }
 
@@ -144,7 +199,7 @@ def ser_followup(f):
         'prompt': f.prompt,
         'answer': f.answer,
         'model_name': f.model_name,
-        'created_at': f.created_at
+        'created_at': local_time_text(f.created_at)
     }
 
 # ====== LLM ======
@@ -205,15 +260,133 @@ def build_payload_from_prompt(image_path, prompt):
         payload['thinking_budget'] = env_int('LLM_THINKING_BUDGET', 1200 if high_accuracy else 800)
     return base_url, api_key, model, payload
 
+def extract_json_object(text):
+    if not text:
+        return None
+    cleaned = re.sub(r'^```(?:json)?\s*|\s*```$', '', text.strip(), flags=re.IGNORECASE)
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        match = re.search(r'\{[\s\S]*\}', cleaned)
+        if not match:
+            return None
+        try:
+            return json.loads(match.group(0))
+        except json.JSONDecodeError:
+            return None
+
+def save_image_with_orientation(path, rotate_clockwise=0):
+    if not Image or not ImageOps:
+        return False
+    rotate_clockwise = int(rotate_clockwise or 0) % 360
+    try:
+        with Image.open(path) as img:
+            img = ImageOps.exif_transpose(img)
+            if rotate_clockwise:
+                img = img.rotate(-rotate_clockwise, expand=True)
+
+            fmt = (img.format or '').upper()
+            ext = os.path.splitext(path)[1].lower()
+            if ext in {'.jpg', '.jpeg'}:
+                fmt = 'JPEG'
+            elif ext == '.png':
+                fmt = 'PNG'
+            elif ext == '.webp':
+                fmt = 'WEBP'
+            elif ext == '.bmp':
+                fmt = 'BMP'
+            elif ext == '.gif':
+                fmt = 'GIF'
+            else:
+                fmt = 'JPEG'
+
+            save_kwargs = {}
+            if fmt == 'JPEG':
+                if img.mode not in ('RGB', 'L'):
+                    img = img.convert('RGB')
+                save_kwargs.update({'quality': 92, 'optimize': True})
+            elif fmt in {'WEBP', 'PNG'} and img.mode == 'P':
+                img = img.convert('RGBA')
+
+            img.save(path, format=fmt, **save_kwargs)
+            return True
+    except Exception as e:
+        app.logger.warning('normalize homework image failed: %s', e)
+        return False
+
+def detect_homework_orientation(path):
+    api_key = os.getenv('LLM_API_KEY')
+    base_url = os.getenv('LLM_BASE_URL', '').rstrip('/')
+    model = os.getenv('LLM_MODEL', 'qwen3.7-plus')
+    if not api_key or not base_url:
+        return 0, '未配置大模型'
+
+    prompt = (
+        '你只负责判断这张学生作业照片的方向，不要解题。'
+        '请观察纸面文字、题号、页眉页脚、横线和书写方向，判断为了让文字变成正向可读，'
+        '这张图片还需要顺时针旋转多少度。\n\n'
+        '只允许返回严格 JSON，不要解释，不要 Markdown：\n'
+        '{"rotate":0,"confidence":"high|medium|low"}\n\n'
+        'rotate 只能是 0、90、180、270 之一。拿不准时返回 0，confidence 返回 low。'
+    )
+    try:
+        mime_type, encoded = encode_image_for_llm(path)
+        payload = {
+            'model': model,
+            'messages': [{
+                'role': 'user',
+                'content': [
+                    {'type': 'text', 'text': prompt},
+                    {'type': 'image_url', 'image_url': {'url': f'data:{mime_type};base64,{encoded}'}}
+                ]
+            }],
+            'temperature': 0,
+            'max_tokens': env_int('LLM_ORIENTATION_MAX_TOKENS', 80),
+            'enable_thinking': False
+        }
+        res = requests.post(
+            f'{base_url}/chat/completions',
+            headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+            json=payload,
+            timeout=env_int('LLM_ORIENTATION_TIMEOUT', 25)
+        )
+        if res.status_code >= 400:
+            payload.pop('enable_thinking', None)
+            res = requests.post(
+                f'{base_url}/chat/completions',
+                headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+                json=payload,
+                timeout=env_int('LLM_ORIENTATION_TIMEOUT', 25)
+            )
+        res.raise_for_status()
+        content = res.json()['choices'][0]['message'].get('content', '')
+        data = extract_json_object(content) or {}
+        rotate = int(data.get('rotate', 0))
+        if rotate not in {0, 90, 180, 270}:
+            rotate = 0
+        return rotate, data.get('confidence', '')
+    except Exception as e:
+        app.logger.warning('detect homework orientation failed: %s', e)
+        return 0, '识别失败'
+
+def normalize_homework_upload(path):
+    save_image_with_orientation(path, 0)
+    rotate, confidence = detect_homework_orientation(path)
+    if rotate:
+        save_image_with_orientation(path, rotate)
+    return {'rotate': rotate, 'confidence': confidence}
+
 def build_vision_payload(image_path, subject, question_text):
     input_mode = '题目图片 + 文字补充' if image_path else '纯文字问题'
     prompt = (
-        '你是一位高效、准确的高中化学教师。请根据学生提供的图片或文字问题解答，要求：\n'
+        '你是一位高效、准确的高中学习导师，擅长数学、物理、化学和英语。'
+        '请严格按学生选择的科目解答；如果题目内容和所选科目明显不一致，要先指出并按题目实际内容谨慎说明。\n'
+        '请根据学生提供的图片或文字问题解答，要求：\n'
         '1. 如果有图片，先识别题目图片；如果没有图片，就直接根据文字问题回答。不要要求学生必须上传图片。\n'
         '2. 不要长篇复述题干，只提取解题必须信息；图片不清楚或文字条件不足时直接指出需要补充什么。\n'
-        '3. 必须展示给学生看的推理过程：条件提取、公式/原理选择、关键判断、必要计算。\n'
+        '3. 必须展示给学生看的推理过程：条件提取、公式/原理/语法点选择、关键判断、必要计算或翻译依据。\n'
         '4. 选择题只分析关键选项；计算题保留关键公式和代入过程。\n'
-        '5. 化学式、离子、电荷、分数、反应箭头要用规范可读写法。\n\n'
+        '5. 数理化公式、化学式、离子、电荷、分数、反应箭头要用规范可读写法；英语题要讲清词汇、语法、句子结构和答案依据。\n\n'
         '遇到复杂晶胞或有机推断题，要先自查关键风险点：晶胞粒子数/配位数/密度公式，'
         '有机题的不饱和度/官能团/反应类型/同分异构，不能确定时明确说明不确定原因。\n\n'
         '请用以下结构回答：\n'
@@ -235,7 +408,7 @@ def build_followup_payload(question, followups, prompt):
         previous.append(f'追问：{item.prompt}\n回答摘要：{item.answer[:900]}')
 
     full_prompt = (
-        '你是一位耐心的高中化学家教。学生正在针对同一道题继续追问。'
+        '你是一位耐心的高中学习导师，擅长数学、物理、化学和英语。学生正在针对同一道题继续追问。'
         '请结合题目图片、前面的讲解和追问上下文回答，不要重新识别整道题，'
         '只回答这次追问。回答要短、准、分步骤，并展示给学生看的关键推理过程，公式显示尽量简洁。\n\n'
         + '\n\n'.join(previous)
@@ -454,6 +627,330 @@ def me():
     if not u: session.clear(); return jsonify({'user': None})
     return jsonify({'user': {'id': u.id, 'username': u.username, 'display_name': u.display_name, 'role': u.role}})
 
+# ====== 学习报告 ======
+
+REPORT_TOPICS = [
+    ('晶胞计算', ['晶胞', '配位数', '密度', '坐标', 'Ni', '晶格', '空间利用率']),
+    ('有机推断', ['有机', '同分异构', '官能团', '加成', '取代', '消去', '氧化', '酯化']),
+    ('氧化还原', ['氧化剂', '还原剂', '氧化还原', '化合价', '电子转移']),
+    ('电离与水解', ['电离', '水解', '弱酸', '弱碱', 'Ka', 'Kb', 'pH']),
+    ('化学平衡', ['平衡', 'Ksp', '勒夏特列', '转化率', '速率']),
+    ('结构与杂化', ['杂化', 'VSEPR', '空间结构', '价层电子对', 'sp', '等电子体']),
+    ('离子方程式', ['离子方程式', '离子反应', '沉淀', '电荷守恒']),
+    ('实验分析', ['实验', '装置', '现象', '检验', '除杂', '滴定']),
+    ('计算与守恒', ['计算', '物质的量', '守恒', '浓度', '质量分数', '阿伏伽德罗'])
+]
+
+def report_topic_scores(text):
+    source = (text or '').lower()
+    scores = []
+    for name, words in REPORT_TOPICS:
+        score = sum(source.count(word.lower()) for word in words)
+        if score:
+            scores.append({'name': name, 'score': score})
+    return scores
+
+def report_level(value, good, ok):
+    if value >= good:
+        return '稳步推进'
+    if value >= ok:
+        return '需要保持'
+    return '需要加强'
+
+def report_cache_key(user, days, student_id):
+    target = student_id or 'all'
+    return f'user:{user.id}:role:{user.role}:days:{days}:student:{target}'
+
+def cached_report_response(user, days, student_id):
+    cache = LearningReportCache.query.filter_by(cache_key=report_cache_key(user, days, student_id)).first()
+    if not cache:
+        return None
+    try:
+        data = json.loads(cache.report_json)
+    except json.JSONDecodeError:
+        return None
+    data['from_cache'] = True
+    data['cache_generated_at'] = local_time_text(cache.generated_at)
+    return data
+
+def save_report_cache(user, days, student_id, report_data):
+    key = report_cache_key(user, days, student_id)
+    cache = LearningReportCache.query.filter_by(cache_key=key).first()
+    if not cache:
+        cache = LearningReportCache(cache_key=key, owner_id=user.id, days=days, target_student_id=student_id)
+        db.session.add(cache)
+    cache.report_json = json.dumps(report_data, ensure_ascii=False)
+    cache.generated_at = utc_now_text()
+    db.session.commit()
+
+def generate_ai_learning_report(report_data, questions, homeworks, coursewares):
+    base_url, api_key, model, payload_or_error = build_payload_from_prompt(None, '')
+    if base_url is None:
+        return '', '未配置', payload_or_error
+
+    question_briefs = []
+    for q in questions[:12]:
+        question_briefs.append({
+            'time': local_time_text(q.created_at),
+            'student': q.student_name,
+            'subject': q.subject,
+            'question': (q.question_text or '图片答疑')[:260],
+            'answer_excerpt': (q.answer or '')[:600]
+        })
+
+    homework_briefs = []
+    for h in homeworks[:12]:
+        homework_briefs.append({
+            'time': local_time_text(h.upload_time),
+            'student': h.student_name,
+            'subject': h.subject,
+            'status': h.status,
+            'teacher_comment': (h.comment or '')[:240]
+        })
+
+    courseware_briefs = [
+        {'date': c.course_date or local_date_text(c.upload_time), 'title': c.title}
+        for c in coursewares[:10]
+    ]
+
+    packed_data = {
+        'range': report_data['range'],
+        'student': report_data['student'],
+        'summary': report_data['summary'],
+        'homework_status': report_data['homework_status'],
+        'weak_topics_by_rules': report_data['weak_topics'],
+        'weak_items_by_rules': report_data['weak_items'],
+        'courseware': courseware_briefs,
+        'questions': question_briefs,
+        'homeworks': homework_briefs
+    }
+
+    prompt = (
+        '你是一位高中化学家教老师，正在给家长和老师生成学生学习报告。'
+        '请只根据下面 JSON 数据分析，不要编造不存在的作业、错题或分数。'
+        '如果数据不足，要明确说“数据不足”，并给出接下来应该补充哪些记录。\n\n'
+        '报告要求：\n'
+        '1. 用中文，语气客观、可执行，不要营销口吻。\n'
+        '2. 必须分析学习进度、错题/薄弱点、答疑追问质量、作业完成情况。\n'
+        '3. 化学薄弱点要尽量具体到题型或知识点，例如氧化还原、晶胞计算、有机推断、杂化/VSEPR等。\n'
+        '4. 给出下一阶段3-5条具体行动建议，每条要能执行。\n'
+        '5. 不要输出内部思考过程，不要说你是AI。\n\n'
+        '请按这个结构输出 Markdown：\n'
+        '## 总体判断\n'
+        '2-3句话说明这一周期学习状态。\n\n'
+        '## 学习进度\n'
+        '结合课件、作业、答疑、追问数量分析推进情况。\n\n'
+        '## 错题与薄弱点\n'
+        '列出主要薄弱主题，并解释为什么判断为薄弱点。\n\n'
+        '## 作业反馈\n'
+        '分析作业状态、待修改情况和老师评语。\n\n'
+        '## 下一步安排\n'
+        '用编号列出3-5条具体建议。\n\n'
+        f'学习数据 JSON：\n{json.dumps(packed_data, ensure_ascii=False)}'
+    )
+
+    payload = dict(payload_or_error)
+    payload['messages'] = [{'role': 'user', 'content': [{'type': 'text', 'text': prompt}]}]
+    payload['temperature'] = 0.2
+    payload['max_tokens'] = env_int('LLM_REPORT_MAX_TOKENS', 1800)
+    if env_flag('LLM_ENABLE_THINKING', '1'):
+        payload['enable_thinking'] = True
+        payload['thinking_budget'] = env_int('LLM_REPORT_THINKING_BUDGET', 700)
+
+    try:
+        res = requests.post(
+            f'{base_url}/chat/completions',
+            headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+            json=payload,
+            timeout=env_int('LLM_REPORT_TIMEOUT', 90)
+        )
+        if res.status_code >= 400 and ('enable_thinking' in payload or 'thinking_budget' in payload):
+            fallback = dict(payload)
+            fallback.pop('enable_thinking', None)
+            fallback.pop('thinking_budget', None)
+            res = requests.post(
+                f'{base_url}/chat/completions',
+                headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+                json=fallback,
+                timeout=env_int('LLM_REPORT_TIMEOUT', 90)
+            )
+        res.raise_for_status()
+        return res.json()['choices'][0]['message'].get('content', '').strip(), model, ''
+    except Exception as e:
+        app.logger.warning('generate ai learning report failed: %s', e)
+        return '', model, f'AI报告生成失败：{str(e)}'
+
+@app.route('/api/report', methods=['GET'])
+@login_required
+def learning_report():
+    user = User.query.get(session['user_id'])
+    days = 7
+    try:
+        days = int(request.args.get('days', days))
+    except (TypeError, ValueError):
+        days = 7
+    if days not in {3, 7, 14, 30}:
+        days = 7
+
+    local_today = datetime.now(timezone.utc).astimezone(app_timezone()).date()
+    start_day = (local_today - timedelta(days=days - 1)).strftime('%Y-%m-%d')
+    end_day = local_today.strftime('%Y-%m-%d')
+
+    student_id = request.args.get('student_id', '').strip()
+    target_user = user
+    if user.role == 'teacher' and student_id:
+        found = User.query.get(int(student_id)) if student_id.isdigit() else None
+        if found:
+            target_user = found
+
+    student_filter_id = target_user.id if target_user.role == 'student' else None
+    refresh = env_flag('REPORT_FORCE_REFRESH', '0') or request.args.get('refresh', '').strip().lower() in {'1', 'true', 'yes'}
+    if not refresh:
+        cached = cached_report_response(user, days, student_filter_id)
+        if cached:
+            return jsonify(cached)
+
+    hw_query = Homework.query
+    q_query = Question.query
+    if student_filter_id:
+        hw_query = hw_query.filter_by(student_id=student_filter_id)
+        q_query = q_query.filter_by(student_id=student_filter_id)
+
+    homeworks = []
+    for item in hw_query.order_by(Homework.id.desc()).all():
+        day = local_date_text(item.upload_time)
+        if date_in_range(day, start_day, end_day):
+            homeworks.append(item)
+
+    questions = []
+    for item in q_query.order_by(Question.id.desc()).all():
+        day = local_date_text(item.created_at)
+        if date_in_range(day, start_day, end_day):
+            questions.append(item)
+
+    question_ids = [q.id for q in questions]
+    followups = []
+    if question_ids:
+        for item in QuestionFollowup.query.filter(QuestionFollowup.question_id.in_(question_ids)).all():
+            day = local_date_text(item.created_at)
+            if date_in_range(day, start_day, end_day):
+                followups.append(item)
+
+    coursewares = []
+    for item in Courseware.query.filter_by(subject='化学').order_by(Courseware.id.desc()).all():
+        day = item.course_date or local_date_text(item.upload_time)
+        if date_in_range(day, start_day, end_day):
+            coursewares.append(item)
+
+    active_days = sorted({
+        local_date_text(h.upload_time) for h in homeworks
+    } | {
+        local_date_text(q.created_at) for q in questions
+    } | {
+        item.course_date or local_date_text(item.upload_time) for item in coursewares
+    })
+    active_days = [d for d in active_days if d]
+
+    status_counts = {}
+    for item in homeworks:
+        status_counts[item.status] = status_counts.get(item.status, 0) + 1
+
+    topic_count = {}
+    weak_items = []
+    for q in questions:
+        combined = '\n'.join([q.question_text or '', q.answer or ''])
+        for item in report_topic_scores(combined):
+            topic_count[item['name']] = topic_count.get(item['name'], 0) + item['score']
+        risk_text = (q.answer or '')[:240]
+        if any(key in (q.answer or '') for key in ['易错', '错误', '不确定', '信息不足', '需要补充']):
+            weak_items.append({
+                'type': '答疑错题',
+                'title': q.question_text or '图片答疑',
+                'time': local_time_text(q.created_at),
+                'note': risk_text
+            })
+
+    for h in homeworks:
+        if h.status in {'待修改', '批改中'} or h.comment:
+            weak_items.append({
+                'type': '作业反馈',
+                'title': f'{h.subject}作业 · {h.status}',
+                'time': local_time_text(h.upload_time),
+                'note': h.comment or '老师还未给出详细评语，建议回看这份作业。'
+            })
+
+    top_topics = sorted(topic_count.items(), key=lambda x: x[1], reverse=True)[:5]
+    weak_topics = [{'name': name, 'count': count} for name, count in top_topics]
+
+    qa_count = len(questions)
+    homework_count = len(homeworks)
+    courseware_count = len(coursewares)
+    followup_count = len(followups)
+    revision_count = status_counts.get('待修改', 0)
+    reviewed_count = status_counts.get('已批改', 0) + status_counts.get('已完成', 0)
+
+    progress_score = min(100, qa_count * 12 + homework_count * 18 + courseware_count * 10 + len(active_days) * 8 + followup_count * 5)
+    if revision_count:
+        progress_score = max(0, progress_score - revision_count * 10)
+
+    suggestions = []
+    if weak_topics:
+        suggestions.append(f'优先复盘 {weak_topics[0]["name"]}，把同类题整理成错题卡。')
+    if revision_count:
+        suggestions.append('先处理待修改作业，要求学生写出订正原因，而不是只改答案。')
+    if qa_count == 0:
+        suggestions.append('本周期没有答疑记录，建议每天至少整理1个卡点问题。')
+    if homework_count == 0:
+        suggestions.append('本周期没有打卡作业，建议固定课后拍照上传，形成连续监督。')
+    if followup_count < qa_count and qa_count:
+        suggestions.append('部分题目没有继续追问，建议对不懂的步骤追问到能复述为止。')
+    if not suggestions:
+        suggestions.append('当前节奏稳定，继续保持课件学习、作业打卡和错题追问闭环。')
+
+    students = []
+    if user.role == 'teacher':
+        students = [
+            {'id': s.id, 'name': s.display_name or s.username}
+            for s in User.query.filter_by(role='student').order_by(User.id.asc()).all()
+        ]
+
+    report_student = {'id': target_user.id, 'name': target_user.display_name or target_user.username, 'role': target_user.role}
+    if user.role == 'teacher' and not student_id:
+        report_student = {'id': '', 'name': '全部学生', 'role': 'teacher'}
+
+    report_data = {
+        'range': {'days': days, 'start': start_day, 'end': end_day},
+        'student': report_student,
+        'students': students,
+        'summary': {
+            'progress_score': progress_score,
+            'progress_level': report_level(progress_score, 75, 45),
+            'active_days': len(active_days),
+            'courseware_count': courseware_count,
+            'homework_count': homework_count,
+            'reviewed_count': reviewed_count,
+            'revision_count': revision_count,
+            'qa_count': qa_count,
+            'followup_count': followup_count
+        },
+        'homework_status': status_counts,
+        'weak_topics': weak_topics,
+        'weak_items': weak_items[:8],
+        'recent_courseware': [
+            {'title': c.title, 'date': c.course_date or local_date_text(c.upload_time), 'filename': c.filename}
+            for c in coursewares[:6]
+        ],
+        'suggestions': suggestions
+    }
+    ai_report, report_model, report_error = generate_ai_learning_report(report_data, questions, homeworks, coursewares)
+    report_data['ai_report'] = ai_report
+    report_data['report_model'] = report_model
+    report_data['report_error'] = report_error
+    report_data['from_cache'] = False
+    report_data['cache_generated_at'] = ''
+    save_report_cache(user, days, student_filter_id, report_data)
+    return jsonify(report_data)
+
 # ====== 课件 ======
 
 @app.route('/api/courseware', methods=['GET'])
@@ -526,6 +1023,8 @@ def delete_courseware(uid):
 def get_homeworks():
     subject = request.args.get('subject', '').strip()
     user = User.query.get(session['user_id'])
+    if subject and subject not in ALLOWED_SUBJECTS:
+        return jsonify({'error': '科目仅支持数学、物理、化学、英语'}), 400
     q = Homework.query
     if user.role == 'student': q = q.filter_by(student_id=user.id)
     if subject: q = q.filter_by(subject=subject)
@@ -535,9 +1034,11 @@ def get_homeworks():
 @login_required
 def upload_homework():
     student_name = request.form.get('student_name', session.get('display_name', ''))
-    subject = request.form.get('subject', '')
+    subject = request.form.get('subject', '').strip()
     file = request.files.get('file')
     if not subject: return jsonify({'error': '请选择科目'}), 400
+    if subject not in ALLOWED_SUBJECTS:
+        return jsonify({'error': '科目仅支持数学、物理、化学、英语'}), 400
     if not file: return jsonify({'error': '请选择图片'}), 400
 
     ext = (file.filename.rsplit('.', 1)[-1] if '.' in file.filename else 'jpg').lower()
@@ -548,14 +1049,16 @@ def upload_homework():
     file.seek(0)
 
     safe_name = f"hw_{uuid.uuid4().hex}.{ext}"
-    file.save(os.path.join(UPLOAD_FOLDER, safe_name))
+    saved_path = os.path.join(UPLOAD_FOLDER, safe_name)
+    file.save(saved_path)
+    orientation = normalize_homework_upload(saved_path)
 
     hw = Homework(uid=uuid.uuid4().hex[:8], student_id=session['user_id'],
                   student_name=student_name, subject=subject, filename=safe_name,
                   upload_time=datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     db.session.add(hw)
     db.session.commit()
-    return jsonify({'message': '提交成功', 'record': ser_hw(hw)}), 201
+    return jsonify({'message': '提交成功', 'record': ser_hw(hw), 'orientation': orientation}), 201
 
 @app.route('/api/homeworks/<uid>', methods=['PUT'])
 @login_required
@@ -571,6 +1074,26 @@ def review_homework(uid):
     db.session.commit()
     return jsonify({'message': '已更新', 'record': ser_hw(hw)})
 
+@app.route('/api/homeworks/<uid>', methods=['DELETE'])
+@login_required
+def delete_homework(uid):
+    user = User.query.get(session['user_id'])
+    hw = Homework.query.filter_by(uid=uid).first()
+    if not hw:
+        return jsonify({'error': '未找到'}), 404
+    if user.role != 'teacher' and hw.student_id != user.id:
+        return jsonify({'error': '只能删除自己的作业'}), 403
+
+    filepath = os.path.join(UPLOAD_FOLDER, hw.filename)
+    db.session.delete(hw)
+    db.session.commit()
+    try:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+    except OSError as e:
+        app.logger.warning('delete homework file failed: %s', e)
+    return jsonify({'message': '已删除打卡作业'})
+
 # ====== 拍照答疑 ======
 
 @app.route('/api/questions', methods=['GET'])
@@ -585,9 +1108,11 @@ def get_questions():
 @login_required
 def ask_question():
     user = User.query.get(session['user_id'])
-    subject = request.form.get('subject', '化学')
+    subject = request.form.get('subject', '化学').strip()
     question_text = request.form.get('question_text', '').strip()
     file = request.files.get('file')
+    if subject not in ALLOWED_SUBJECTS:
+        return jsonify({'error': '科目仅支持数学、物理、化学、英语'}), 400
     if not file and not question_text:
         return jsonify({'error': '请上传题目图片，或输入需要答疑的问题'}), 400
 
@@ -605,7 +1130,7 @@ def ask_question():
         file.save(filepath)
 
     record_uid = uuid.uuid4().hex[:8]
-    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    now = utc_now_text()
 
     # Save placeholder record first
     q = Question(uid=record_uid, student_id=session['user_id'],
@@ -667,7 +1192,7 @@ def ask_followup(uid):
 
     question_db_id = question.id
     followup_uid = uuid.uuid4().hex[:8]
-    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    now = utc_now_text()
 
     record = QuestionFollowup(
         uid=followup_uid,

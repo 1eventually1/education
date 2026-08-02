@@ -63,7 +63,7 @@ async function logout() {
 
 // ====== Tabs ======
 function switchTab(t) {
-    ['home','courseware','homework','qa'].forEach((name) => {
+    ['home','courseware','homework','report','qa'].forEach((name) => {
         document.getElementById(`tab-${name}`).classList.toggle('active', name===t);
     });
     document.querySelectorAll('.tab-btn').forEach((btn) => {
@@ -72,10 +72,135 @@ function switchTab(t) {
     });
     if (t==='courseware') loadCourseware();
     if (t==='homework') loadHomeworks();
+    if (t==='report') loadReport();
     if (t==='qa') loadQuestions();
     requestAnimationFrame(() => {
         window.scrollTo({ top: 0, behavior: 'smooth' });
     });
+}
+
+// ====== Learning Report ======
+async function loadReport(forceRefresh = false) {
+    const body = document.getElementById('reportBody');
+    if (!body) return;
+    body.innerHTML = `<div class="empty-msg">${forceRefresh ? '正在重新生成学习报告...' : '正在读取上次学习报告...'}</div>`;
+    const days = document.getElementById('reportDays')?.value || '7';
+    const studentSelect = document.getElementById('reportStudent');
+    const studentId = studentSelect && !studentSelect.classList.contains('hidden') ? studentSelect.value : '';
+    const params = new URLSearchParams({ days });
+    if (studentId) params.set('student_id', studentId);
+    if (forceRefresh) params.set('refresh', '1');
+    const r = await fetch(`${API}/api/report?${params.toString()}`, { credentials:'include' });
+    const d = await r.json();
+    if (!r.ok) {
+        body.innerHTML = `<div class="empty-msg">${esc(d.error || '报告生成失败')}</div>`;
+        return;
+    }
+    renderReportStudentSelect(d);
+    body.innerHTML = renderReport(d);
+}
+
+function renderReportStudentSelect(data) {
+    const select = document.getElementById('reportStudent');
+    if (!select) return;
+    const students = data.students || [];
+    select.classList.toggle('hidden', !students.length);
+    if (!students.length) return;
+    const previous = select.value;
+    select.innerHTML = [
+        '<option value="">全部学生</option>',
+        ...students.map(s => `<option value="${esc(String(s.id))}">${esc(s.name)}</option>`)
+    ].join('');
+    if ([...select.options].some(option => option.value === previous)) select.value = previous;
+}
+
+function renderReport(data) {
+    const s = data.summary || {};
+    const weakTopics = data.weak_topics || [];
+    const weakItems = data.weak_items || [];
+    const courseware = data.recent_courseware || [];
+    const suggestions = data.suggestions || [];
+    const statusRows = Object.entries(data.homework_status || {});
+    const aiReport = data.ai_report || '';
+    return `
+        <div class="report-hero">
+            <div>
+                <span class="report-kicker">${esc(data.range.start)} 至 ${esc(data.range.end)}</span>
+                <h3>${esc(data.student.name)}的学习进度</h3>
+                <p>${esc(s.progress_level || '')} · 活跃 ${s.active_days || 0} 天 · 答疑 ${s.qa_count || 0} 次 · 作业 ${s.homework_count || 0} 份 · ${data.from_cache ? '上次生成' : '刚刚生成'}</p>
+                ${data.cache_generated_at ? `<p class="report-cache-note">生成时间：${esc(data.cache_generated_at)} · 模型：${esc(data.report_model || '未配置')}</p>` : ''}
+            </div>
+            <div class="report-score">
+                <strong>${s.progress_score || 0}</strong>
+                <span>进度分</span>
+            </div>
+        </div>
+
+        <section class="report-ai-card">
+            <div class="report-card-head">
+                <h3>AI生成学习报告</h3>
+                <span>${esc(data.report_model || '未配置')}</span>
+            </div>
+            <div class="report-ai-content">
+                ${aiReport ? renderAnswer(aiReport) : `<p>${esc(data.report_error || 'AI报告暂未生成，下面保留规则统计结果。')}</p>`}
+            </div>
+        </section>
+
+        <div class="report-metrics">
+            ${reportMetric('课件学习', s.courseware_count || 0, '份')}
+            ${reportMetric('作业打卡', s.homework_count || 0, '份')}
+            ${reportMetric('已批改', s.reviewed_count || 0, '份')}
+            ${reportMetric('待修改', s.revision_count || 0, '份')}
+            ${reportMetric('AI答疑', s.qa_count || 0, '题')}
+            ${reportMetric('继续追问', s.followup_count || 0, '次')}
+        </div>
+
+        <div class="report-grid">
+            <section class="report-card">
+                <div class="report-card-head"><h3>薄弱主题</h3><span>按答疑与错题关键词统计</span></div>
+                ${weakTopics.length ? `
+                    <div class="topic-list">
+                        ${weakTopics.map(t => `<div><span>${esc(t.name)}</span><b>${t.count}</b></div>`).join('')}
+                    </div>
+                ` : '<div class="empty-msg compact">暂无明显薄弱主题，继续积累答疑和作业记录。</div>'}
+            </section>
+
+            <section class="report-card">
+                <div class="report-card-head"><h3>错题与风险</h3><span>需要优先复盘</span></div>
+                ${weakItems.length ? `
+                    <div class="risk-list">
+                        ${weakItems.map(item => `
+                            <button onclick="switchTab('${item.type === '答疑错题' ? 'qa' : 'homework'}')">
+                                <strong>${esc(item.type)} · ${esc(item.time || '')}</strong>
+                                <span>${esc(item.title || '')}</span>
+                                <em>${esc((item.note || '').slice(0, 90))}${(item.note || '').length > 90 ? '...' : ''}</em>
+                            </button>
+                        `).join('')}
+                    </div>
+                ` : '<div class="empty-msg compact">这个周期没有明显错题风险。</div>'}
+            </section>
+
+            <section class="report-card">
+                <div class="report-card-head"><h3>学习进度</h3><span>作业状态和课件覆盖</span></div>
+                ${statusRows.length ? `<div class="status-bars">${statusRows.map(([name, count]) => reportStatusBar(name, count, s.homework_count || 1)).join('')}</div>` : '<div class="empty-msg compact">暂无作业状态数据。</div>'}
+                ${courseware.length ? `<div class="course-mini">${courseware.map(c => `<div><b>${esc(c.date)}</b><span>${esc(c.title)}</span></div>`).join('')}</div>` : ''}
+            </section>
+
+            <section class="report-card">
+                <div class="report-card-head"><h3>下一步建议</h3><span>本周期行动清单</span></div>
+                <ul class="suggestion-list">${suggestions.map(x => `<li>${esc(x)}</li>`).join('')}</ul>
+            </section>
+        </div>
+    `;
+}
+
+function reportMetric(label, value, unit) {
+    return `<div><span>${esc(label)}</span><strong>${esc(String(value))}</strong><em>${esc(unit)}</em></div>`;
+}
+
+function reportStatusBar(name, count, total) {
+    const pct = Math.round((count / Math.max(total, 1)) * 100);
+    return `<div><div><span>${esc(name)}</span><b>${count}份</b></div><i><em style="width:${pct}%"></em></i></div>`;
 }
 
 function activateHomeCard(event, tab) {
@@ -195,15 +320,20 @@ async function loadHomeworks() {
 
 function hwCard(h) {
     const sc = { '待批改':'pending','批改中':'reviewing','已批改':'done','已完成':'done','待修改':'pending' }[h.status]||'pending';
+    const deleteBtn = `<button class="btn btn-danger btn-small hw-delete-btn" onclick="deleteHw('${h.id}')">删除</button>`;
     const tools = me.role==='teacher' ? `
-        <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
+        <div class="hw-actions">
             <button class="btn btn-success btn-small" onclick="reviewHw('${h.id}','已批改')">通过</button>
             <button class="btn btn-warning btn-small" onclick="reviewHw('${h.id}','批改中')">批改中</button>
             <button class="btn btn-danger btn-small" onclick="reviewHw('${h.id}','待修改')">需修改</button>
+            ${deleteBtn}
         </div>
         <textarea id="cmt-${h.id}" class="form-group" style="margin-top:6px;min-height:50px;" placeholder="评语">${esc(h.comment||'')}</textarea>
         <button class="btn btn-primary btn-small btn-block" onclick="saveCmt('${h.id}')">保存评语</button>
-    ` : (h.comment ? `<p class="meta">评语：${esc(h.comment)}</p>` : '');
+    ` : `
+        ${h.comment ? `<p class="meta">评语：${esc(h.comment)}</p>` : ''}
+        <div class="hw-actions">${deleteBtn}</div>
+    `;
     return `<div class="hw-card">
         <img src="${API}/uploads/${esc(h.filename)}" onclick="openModal('${API}/uploads/${esc(h.filename)}')" alt="">
         <h3>${esc(h.student_name)} · ${esc(h.subject)}</h3>
@@ -223,6 +353,14 @@ async function saveCmt(id) {
     const comment = document.getElementById(`cmt-${id}`).value;
     const r = await fetch(`${API}/api/homeworks/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify({comment}) });
     const d = await r.json();
+    toast(d.message||d.error, r.ok?'ok':'err');
+}
+
+async function deleteHw(id) {
+    if (!confirm('确定删除这条打卡作业和图片？')) return;
+    const r = await fetch(`${API}/api/homeworks/${id}`, { method:'DELETE', credentials:'include' });
+    const d = await r.json();
+    if (r.ok) loadHomeworks();
     toast(d.message||d.error, r.ok?'ok':'err');
 }
 
@@ -276,7 +414,7 @@ async function askQuestion() {
                         const d = JSON.parse(line.slice(6));
                         if (d.t === 'c') {
                             rawText += d.c;
-                            answerEl.innerHTML = renderAnswer(rawText);
+                            answerEl.innerHTML = renderAnswer(rawText, { typeset: false });
                         } else if (d.t === 'k') {
                             modelEl.textContent = '深度思考中';
                             if (!rawText) answerEl.innerHTML = renderThinkingStatus(d.c);
@@ -288,6 +426,7 @@ async function askQuestion() {
                         } else if (d.t === 'r') {
                             currentQuestionId = d.id;
                             modelEl.textContent = d.m;
+                            if (rawText) answerEl.innerHTML = renderAnswer(rawText);
                             document.getElementById('qaClearBtn').classList.remove('hidden');
                             showFollowupBox(d.id);
                         }
@@ -307,6 +446,7 @@ async function askQuestion() {
             } catch(e) {}
         }
 
+        if (rawText) answerEl.innerHTML = renderAnswer(rawText);
         toast('答疑完成', 'ok');
         loadQuestions();
     } catch(e) {
@@ -318,7 +458,7 @@ async function askQuestion() {
     }
 }
 
-function renderAnswer(text) {
+function renderAnswer(text, options = {}) {
     if (!text) return '<p>等待 AI 输出...</p>';
     let h = prepareAnswerText(text);
     h = esc(h);
@@ -341,7 +481,7 @@ function renderAnswer(text) {
     h = h.replace(/<p><ul>/g, '<ul>').replace(/<\/ul><\/p>/g, '</ul>');
     h = h.replace(/<\/li>(?:<br>\s*)+<li>/g, '</li><li>');
     h = h.replace(/<ul>(?:<br>\s*)+/g, '<ul>').replace(/(?:<br>\s*)+<\/ul>/g, '</ul>');
-    scheduleMathTypeset();
+    if (options.typeset !== false) scheduleMathTypeset();
     return h;
 }
 
@@ -705,14 +845,82 @@ async function loadQuestions() {
     const r = await fetch(`${API}/api/questions`, { credentials:'include' });
     const d = await r.json();
     qaCache = d.questions || [];
+    updateQuestionDateFilter();
+    renderQuestionsHistory();
+}
+
+function renderQuestionsHistory() {
+    const el = document.getElementById('qaHistory');
+    if (!el) return;
     if (!qaCache.length) { el.innerHTML = '<div class="empty-msg">暂无答疑记录</div>'; return; }
-    el.innerHTML = qaCache.map(q => `
+    const selectedDate = document.getElementById('qaHistoryDate')?.value || '';
+    const visible = selectedDate ? qaCache.filter(q => (q.created_at || '').slice(0, 10) === selectedDate) : qaCache;
+    if (!visible.length) { el.innerHTML = '<div class="empty-msg">这一天暂无答疑记录</div>'; return; }
+    const groups = groupQuestionsByDay(visible);
+    el.innerHTML = groups.map(group => `
+        <section class="history-day">
+            <div class="history-day-head">
+                <h3>${esc(group.label)}</h3>
+                <span>${group.items.length} 条答疑</span>
+            </div>
+            <div class="history-day-list">
+                ${group.items.map(q => qaHistoryRow(q)).join('')}
+            </div>
+        </section>
+    `).join('');
+}
+
+function updateQuestionDateFilter() {
+    const select = document.getElementById('qaHistoryDate');
+    if (!select) return;
+    const previous = select.value;
+    const groups = groupQuestionsByDay(qaCache);
+    select.innerHTML = [
+        '<option value="">全部日期</option>',
+        ...groups.map(group => `<option value="${esc(group.key)}">${esc(group.label)}（${group.items.length}条）</option>`)
+    ].join('');
+    if ([...select.options].some(option => option.value === previous)) {
+        select.value = previous;
+    }
+}
+
+function groupQuestionsByDay(items) {
+    const map = new Map();
+    items.forEach(q => {
+        const key = (q.created_at || '').slice(0, 10) || '未记录日期';
+        if (!map.has(key)) map.set(key, []);
+        map.get(key).push(q);
+    });
+    return Array.from(map.entries()).map(([key, groupItems]) => ({
+        key,
+        label: formatQaDayLabel(key),
+        items: groupItems
+    }));
+}
+
+function formatQaDayLabel(key) {
+    if (key === '未记录日期') return key;
+    const today = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const todayKey = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+    const yesterdayKey = `${yesterday.getFullYear()}-${pad(yesterday.getMonth()+1)}-${pad(yesterday.getDate())}`;
+    if (key === todayKey) return `今天 · ${key}`;
+    if (key === yesterdayKey) return `昨天 · ${key}`;
+    return key;
+}
+
+function qaHistoryRow(q) {
+    const time = (q.created_at || '').slice(11, 16) || '--:--';
+    const title = q.question_text || '图片答疑';
+    return `
         <div class="history-row" onclick="viewAnswer('${q.id}')">
-            <h4>${esc(q.subject)} · ${esc(q.student_name)} · ${esc(q.created_at)}</h4>
-            <p>${esc(q.question_text||'图片答疑')} · 模型：${esc(q.model_name || '未配置/未保存')} · 追问 ${q.followups?.length || 0}</p>
+            <h4>${esc(time)} · ${esc(q.subject)} · ${esc(q.student_name)}</h4>
+            <p>${esc(title)} · 模型：${esc(q.model_name || '未配置/未保存')} · 追问 ${q.followups?.length || 0}</p>
             ${q.answer ? `<p>${esc(q.answer).slice(0, 80)}${q.answer.length > 80 ? '...' : ''}</p>` : '<p>回答内容未保存，建议重新提交这道题。</p>'}
         </div>
-    `).join('');
+    `;
 }
 
 async function viewAnswer(id) {
@@ -794,7 +1002,7 @@ async function askFollowup() {
                         const d = JSON.parse(line.slice(6));
                         if (d.t === 'c') {
                             rawText += d.c;
-                            active.innerHTML = renderAnswer(rawText);
+                            active.innerHTML = renderAnswer(rawText, { typeset: false });
                         } else if (d.t === 'k') {
                             document.getElementById('followupHint').textContent = '深度思考中，正在组织追问答案';
                             if (!rawText) active.innerHTML = renderThinkingStatus(d.c);
@@ -807,6 +1015,7 @@ async function askFollowup() {
             }
         }
 
+        if (rawText) active.innerHTML = renderAnswer(rawText);
         textEl.value = '';
         toast('追问已保存', 'ok');
         await loadQuestions();
