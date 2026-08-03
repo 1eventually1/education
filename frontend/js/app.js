@@ -5,6 +5,8 @@ let hwFilter = '';
 let qaCache = [];
 let currentQuestionId = null;
 let selectedHomeworkFiles = [];
+let homeworkPreviewUrls = [];
+let homeworkUploading = false;
 
 // ====== Auth ======
 window.onload = async () => {
@@ -285,6 +287,11 @@ async function delCw(id) {
 }
 
 // ====== Homework ======
+function revokeHomeworkPreviewUrls() {
+    homeworkPreviewUrls.forEach(url => URL.revokeObjectURL(url));
+    homeworkPreviewUrls = [];
+}
+
 function filterHomeworks(subject) {
     hwFilter = subject;
     loadHomeworks();
@@ -299,19 +306,23 @@ function renderHomeworkFilter() {
 
 function renderHomeworkPreview() {
     const list = document.getElementById('hwPreviewList');
+    revokeHomeworkPreviewUrls();
     if (!selectedHomeworkFiles.length) {
         list.innerHTML = '';
         list.classList.add('hidden');
         document.getElementById('hwUploadHint').classList.remove('hidden');
         return;
     }
-    list.innerHTML = selectedHomeworkFiles.map((file, idx) => `
+    list.innerHTML = selectedHomeworkFiles.map((file, idx) => {
+        const url = URL.createObjectURL(file);
+        homeworkPreviewUrls.push(url);
+        return `
         <div class="hw-preview-item" onclick="event.stopPropagation()">
-            <img src="${URL.createObjectURL(file)}" alt="作业图片${idx + 1}">
+            <img src="${url}" alt="作业图片${idx + 1}" loading="lazy" decoding="async">
             <span>${idx + 1}</span>
             <button type="button" class="hw-preview-remove" onclick="removeHomeworkPreview(event, ${idx})">×</button>
-        </div>
-    `).join('');
+        </div>`;
+    }).join('');
     list.classList.remove('hidden');
     document.getElementById('hwUploadHint').classList.add('hidden');
 }
@@ -325,6 +336,7 @@ function removeHomeworkPreview(event, index) {
 function clearHomeworkSelection() {
     selectedHomeworkFiles = [];
     document.getElementById('hwFile').value = '';
+    revokeHomeworkPreviewUrls();
     renderHomeworkPreview();
 }
 
@@ -342,20 +354,33 @@ function previewHw(e) {
 }
 
 async function uploadHomework() {
+    if (homeworkUploading) return;
     const subject = document.getElementById('hwSubject').value;
     const files = selectedHomeworkFiles;
     if (!files.length) return toast('请选择图片','err');
     if (files.length > 30) return toast('一次最多上传30张图片','err');
+    homeworkUploading = true;
+    const submitBtn = document.getElementById('hwSubmitBtn');
+    submitBtn.disabled = true;
+    submitBtn.textContent = '上传中...';
     const fd = new FormData();
     fd.append('subject', subject);
     files.forEach(file => fd.append('files', file));
-    const r = await fetch(`${API}/api/homeworks/upload`, { method:'POST', credentials:'include', body: fd });
-    const d = await r.json();
-    if (r.ok) {
-        clearHomeworkSelection();
-        loadHomeworks();
+    try {
+        const r = await fetch(`${API}/api/homeworks/upload`, { method:'POST', credentials:'include', body: fd });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok) {
+            clearHomeworkSelection();
+            loadHomeworks();
+        }
+        toast(d.message||d.error||'上传失败', r.ok?'ok':'err');
+    } catch (err) {
+        toast('上传中断，请减少图片数量或换网络后重试', 'err');
+    } finally {
+        homeworkUploading = false;
+        submitBtn.disabled = false;
+        submitBtn.textContent = '提交作业';
     }
-    toast(d.message||d.error, r.ok?'ok':'err');
 }
 
 async function loadHomeworks() {
@@ -380,7 +405,7 @@ function hwCard(h) {
     const imageGrid = `<div class="hw-image-grid ${imageGridClass}">
         ${images.map((filename, idx) => `
             <button class="hw-image-thumb" onclick="openModal('${API}/uploads/${esc(filename)}')" title="查看第${idx + 1}张">
-                <img src="${API}/uploads/${esc(filename)}" alt="作业图片${idx + 1}">
+                <img src="${API}/uploads/${esc(filename)}" alt="作业图片${idx + 1}" loading="lazy" decoding="async">
                 ${images.length > 1 ? `<span>${idx + 1}</span>` : ''}
             </button>
         `).join('')}

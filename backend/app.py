@@ -41,6 +41,8 @@ ALLOWED_COURSEWARE = {'pdf', 'ppt', 'pptx', 'doc', 'docx', 'jpg', 'jpeg', 'png'}
 ALLOWED_SUBJECTS = {'数学', '物理', '化学', '英语'}
 MAX_FILE_SIZE = 20 * 1024 * 1024
 MAX_HOMEWORK_IMAGES = 30
+HOMEWORK_IMAGE_MAX_SIDE = 1800
+HOMEWORK_IMAGE_QUALITY = 82
 APP_TIMEZONE = os.getenv('APP_TIMEZONE', 'Asia/Shanghai')
 
 # ====== 模型 ======
@@ -298,15 +300,19 @@ def extract_json_object(text):
         except json.JSONDecodeError:
             return None
 
-def save_image_with_orientation(path, rotate_clockwise=0):
+def save_image_with_orientation(path, rotate_clockwise=0, max_side=None, quality=None):
     if not Image or not ImageOps:
         return False
     rotate_clockwise = int(rotate_clockwise or 0) % 360
+    max_side = int(max_side or 0)
+    quality = int(quality or 92)
     try:
         with Image.open(path) as img:
             img = ImageOps.exif_transpose(img)
             if rotate_clockwise:
                 img = img.rotate(-rotate_clockwise, expand=True)
+            if max_side and max(img.size) > max_side:
+                img.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
 
             fmt = (img.format or '').upper()
             ext = os.path.splitext(path)[1].lower()
@@ -327,7 +333,7 @@ def save_image_with_orientation(path, rotate_clockwise=0):
             if fmt == 'JPEG':
                 if img.mode not in ('RGB', 'L'):
                     img = img.convert('RGB')
-                save_kwargs.update({'quality': 92, 'optimize': True})
+                save_kwargs.update({'quality': quality, 'optimize': True})
             elif fmt in {'WEBP', 'PNG'} and img.mode == 'P':
                 img = img.convert('RGBA')
 
@@ -393,10 +399,10 @@ def detect_homework_orientation(path):
         return 0, '识别失败'
 
 def normalize_homework_upload(path):
-    save_image_with_orientation(path, 0)
+    save_image_with_orientation(path, 0, HOMEWORK_IMAGE_MAX_SIDE, HOMEWORK_IMAGE_QUALITY)
     rotate, confidence = detect_homework_orientation(path)
     if rotate:
-        save_image_with_orientation(path, rotate)
+        save_image_with_orientation(path, rotate, HOMEWORK_IMAGE_MAX_SIDE, HOMEWORK_IMAGE_QUALITY)
     return {'rotate': rotate, 'confidence': confidence}
 
 def build_vision_payload(image_path, subject, question_text):
