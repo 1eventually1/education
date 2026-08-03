@@ -211,7 +211,7 @@
                 </div>
                 <div class="upload-layout">
                     <div>
-                        <div class="form-group"><label>姓名</label><input type="text" id="hwName" placeholder="学生姓名"></div>
+                        <div class="submitter-chip">提交人：<strong id="hwSubmitterName">当前用户</strong></div>
                         <div class="form-group">
                             <label>科目</label>
                             <select id="hwSubject">
@@ -220,13 +220,22 @@
                             </select>
                         </div>
                         <div class="upload-zone" onclick="document.getElementById('hwFile').click()">
-                            <div id="hwUploadHint"><strong>拍照或选择图片</strong><span>支持 JPG/PNG，≤20MB</span></div>
-                            <img id="hwPreview" class="preview-img hidden" alt="">
+                            <div id="hwUploadHint"><strong>拍照或选择多张图片</strong><span>支持 JPG/PNG，单张≤20MB，一次最多30张</span></div>
+                            <div id="hwPreviewList" class="hw-preview-list hidden"></div>
                         </div>
-                        <input type="file" id="hwFile" accept="image/*" capture="environment" class="hidden" onchange="previewHw(event)">
+                        <input type="file" id="hwFile" accept="image/*" multiple class="hidden" onchange="previewHw(event)">
                         <button class="btn btn-primary btn-block" style="margin-top:12px;" onclick="uploadHomework()">提交作业</button>
                     </div>
-                    <div id="hwList"><div class="empty-msg">正在加载...</div></div>
+                    <div class="homework-records">
+                        <div class="subject-filter hw-subject-filter" id="hwSubjectFilter">
+                            <button class="subject-chip active" onclick="filterHomeworks('')">全部</button>
+                            <button class="subject-chip" onclick="filterHomeworks('数学')">数学</button>
+                            <button class="subject-chip" onclick="filterHomeworks('物理')">物理</button>
+                            <button class="subject-chip" onclick="filterHomeworks('化学')">化学</button>
+                            <button class="subject-chip" onclick="filterHomeworks('英语')">英语</button>
+                        </div>
+                        <div id="hwList"><div class="empty-msg">正在加载...</div></div>
+                    </div>
                 </div>
             </div>
         </div>

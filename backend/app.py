@@ -40,6 +40,7 @@ ALLOWED_IMAGE = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'}
 ALLOWED_COURSEWARE = {'pdf', 'ppt', 'pptx', 'doc', 'docx', 'jpg', 'jpeg', 'png'}
 ALLOWED_SUBJECTS = {'数学', '物理', '化学', '英语'}
 MAX_FILE_SIZE = 20 * 1024 * 1024
+MAX_HOMEWORK_IMAGES = 30
 APP_TIMEZONE = os.getenv('APP_TIMEZONE', 'Asia/Shanghai')
 
 # ====== 模型 ======
@@ -72,7 +73,7 @@ class Homework(db.Model):
     student_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     student_name = db.Column(db.String(80), nullable=False)
     subject = db.Column(db.String(50), nullable=False)
-    filename = db.Column(db.String(200), nullable=False)
+    filename = db.Column(db.Text, nullable=False)
     upload_time = db.Column(db.String(30), nullable=False)
     status = db.Column(db.String(20), default='待批改')
     comment = db.Column(db.Text, default='')
@@ -175,8 +176,30 @@ def date_in_range(day, start_day, end_day):
 def ser_cw(c):
     return {'id': c.uid, 'title': c.title, 'subject': c.subject, 'course_date': c.course_date or c.upload_time[:10], 'filename': c.filename, 'original_name': c.original_name, 'upload_time': c.upload_time}
 
+def homework_filenames(h):
+    if not h.filename:
+        return []
+    try:
+        value = json.loads(h.filename)
+        if isinstance(value, list):
+            return [str(item) for item in value if item]
+    except (TypeError, ValueError):
+        pass
+    return [h.filename]
+
 def ser_hw(h):
-    return {'id': h.uid, 'student_name': h.student_name, 'subject': h.subject, 'filename': h.filename, 'upload_time': h.upload_time, 'status': h.status, 'comment': h.comment}
+    filenames = homework_filenames(h)
+    return {
+        'id': h.uid,
+        'student_name': h.student_name,
+        'subject': h.subject,
+        'filename': filenames[0] if filenames else '',
+        'filenames': filenames,
+        'image_count': len(filenames),
+        'upload_time': h.upload_time,
+        'status': h.status,
+        'comment': h.comment
+    }
 
 def ser_qa(q):
     followups = QuestionFollowup.query.filter_by(question_id=q.id).order_by(QuestionFollowup.id.asc()).all()
@@ -1033,32 +1056,56 @@ def get_homeworks():
 @app.route('/api/homeworks/upload', methods=['POST'])
 @login_required
 def upload_homework():
-    student_name = request.form.get('student_name', session.get('display_name', ''))
+    user = User.query.get(session['user_id'])
+    student_name = user.display_name or user.username
     subject = request.form.get('subject', '').strip()
-    file = request.files.get('file')
+    files = request.files.getlist('files')
+    if not files:
+        files = request.files.getlist('file')
+    files = [file for file in files if file and file.filename]
     if not subject: return jsonify({'error': '请选择科目'}), 400
     if subject not in ALLOWED_SUBJECTS:
         return jsonify({'error': '科目仅支持数学、物理、化学、英语'}), 400
-    if not file: return jsonify({'error': '请选择图片'}), 400
+    if not files: return jsonify({'error': '请选择图片'}), 400
+    if len(files) > MAX_HOMEWORK_IMAGES:
+        return jsonify({'error': f'一次最多上传{MAX_HOMEWORK_IMAGES}张图片'}), 400
 
-    ext = (file.filename.rsplit('.', 1)[-1] if '.' in file.filename else 'jpg').lower()
-    if ext not in ALLOWED_IMAGE: return jsonify({'error': '仅支持图片格式'}), 400
+    for file in files:
+        ext = (file.filename.rsplit('.', 1)[-1] if '.' in file.filename else 'jpg').lower()
+        if ext not in ALLOWED_IMAGE:
+            return jsonify({'error': '仅支持图片格式'}), 400
 
-    file.seek(0, os.SEEK_END)
-    if file.tell() > MAX_FILE_SIZE: return jsonify({'error': f'文件不能超过{MAX_FILE_SIZE//1024//1024}MB'}), 400
-    file.seek(0)
+        file.seek(0, os.SEEK_END)
+        if file.tell() > MAX_FILE_SIZE:
+            return jsonify({'error': f'单张图片不能超过{MAX_FILE_SIZE//1024//1024}MB'}), 400
+        file.seek(0)
 
-    safe_name = f"hw_{uuid.uuid4().hex}.{ext}"
-    saved_path = os.path.join(UPLOAD_FOLDER, safe_name)
-    file.save(saved_path)
-    orientation = normalize_homework_upload(saved_path)
+    saved_names = []
+    orientations = []
+    try:
+        for file in files:
+            ext = (file.filename.rsplit('.', 1)[-1] if '.' in file.filename else 'jpg').lower()
+            safe_name = f"hw_{uuid.uuid4().hex}.{ext}"
+            saved_path = os.path.join(UPLOAD_FOLDER, safe_name)
+            file.save(saved_path)
+            orientations.append({'filename': safe_name, **normalize_homework_upload(saved_path)})
+            saved_names.append(safe_name)
+    except Exception:
+        for name in saved_names:
+            try:
+                os.remove(os.path.join(UPLOAD_FOLDER, name))
+            except OSError:
+                pass
+        raise
+
+    filename_value = saved_names[0] if len(saved_names) == 1 else json.dumps(saved_names, ensure_ascii=False)
 
     hw = Homework(uid=uuid.uuid4().hex[:8], student_id=session['user_id'],
-                  student_name=student_name, subject=subject, filename=safe_name,
+                  student_name=student_name, subject=subject, filename=filename_value,
                   upload_time=datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     db.session.add(hw)
     db.session.commit()
-    return jsonify({'message': '提交成功', 'record': ser_hw(hw), 'orientation': orientation}), 201
+    return jsonify({'message': f'提交成功，共{len(saved_names)}张图片', 'record': ser_hw(hw), 'orientations': orientations}), 201
 
 @app.route('/api/homeworks/<uid>', methods=['PUT'])
 @login_required
@@ -1084,14 +1131,16 @@ def delete_homework(uid):
     if user.role != 'teacher' and hw.student_id != user.id:
         return jsonify({'error': '只能删除自己的作业'}), 403
 
-    filepath = os.path.join(UPLOAD_FOLDER, hw.filename)
+    filenames = homework_filenames(hw)
     db.session.delete(hw)
     db.session.commit()
-    try:
-        if os.path.exists(filepath):
-            os.remove(filepath)
-    except OSError as e:
-        app.logger.warning('delete homework file failed: %s', e)
+    for filename in filenames:
+        filepath = os.path.join(UPLOAD_FOLDER, filename)
+        try:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+        except OSError as e:
+            app.logger.warning('delete homework file failed: %s', e)
     return jsonify({'message': '已删除打卡作业'})
 
 # ====== 拍照答疑 ======
