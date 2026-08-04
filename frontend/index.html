@@ -227,12 +227,17 @@
                         <button id="hwSubmitBtn" class="btn btn-primary btn-block" style="margin-top:12px;" onclick="uploadHomework()">提交作业</button>
                     </div>
                     <div class="homework-records">
-                        <div class="subject-filter hw-subject-filter" id="hwSubjectFilter">
-                            <button class="subject-chip active" onclick="filterHomeworks('')">全部</button>
-                            <button class="subject-chip" onclick="filterHomeworks('数学')">数学</button>
-                            <button class="subject-chip" onclick="filterHomeworks('物理')">物理</button>
-                            <button class="subject-chip" onclick="filterHomeworks('化学')">化学</button>
-                            <button class="subject-chip" onclick="filterHomeworks('英语')">英语</button>
+                        <div class="homework-filter-bar">
+                            <select id="hwStudentFilter" class="hidden" onchange="filterHomeworkStudent(this.value)">
+                                <option value="">全部学生</option>
+                            </select>
+                            <div class="subject-filter hw-subject-filter" id="hwSubjectFilter">
+                                <button class="subject-chip active" onclick="filterHomeworks('')">全部</button>
+                                <button class="subject-chip" onclick="filterHomeworks('数学')">数学</button>
+                                <button class="subject-chip" onclick="filterHomeworks('物理')">物理</button>
+                                <button class="subject-chip" onclick="filterHomeworks('化学')">化学</button>
+                                <button class="subject-chip" onclick="filterHomeworks('英语')">英语</button>
+                            </div>
                         </div>
                         <div id="hwList"><div class="empty-msg">正在加载...</div></div>
                     </div>
@@ -278,10 +283,10 @@
                             </select>
                         </div>
                         <div class="upload-zone" onclick="document.getElementById('qaFile').click()">
-                            <div id="qaUploadHint"><strong>拍照或选择题目图片</strong><span>可不上传，直接在下方输入问题</span></div>
-                            <img id="qaPreview" class="preview-img hidden" alt="">
+                            <div id="qaUploadHint"><strong>拍照或选择题目图片</strong><span>支持多张，适合正反面/续题；也可不上传直接提问</span></div>
+                            <div id="qaPreviewList" class="hw-preview-list hidden"></div>
                         </div>
-                        <input type="file" id="qaFile" accept="image/*" capture="environment" class="hidden" onchange="previewQa(event)">
+                        <input type="file" id="qaFile" accept="image/*" multiple class="hidden" onchange="previewQa(event)">
                         <div class="form-group">
                             <label>卡在哪里</label>
                             <textarea id="qaText" placeholder="例如：氧化剂和还原剂怎么判断？没有图片也可以直接提问。"></textarea>
@@ -320,10 +325,18 @@
     </main>
 </div>
 
-<!-- Modal -->
-<div id="imgModal" class="modal" onclick="closeModal()">
-    <button class="close-btn">&times;</button>
-    <img id="modalImg" src="" alt="">
+<!-- 图集查看 Modal（微信相册式，支持左右切换 / 滑动 / 缩略图跳转） -->
+<div id="galleryModal" class="modal gallery-modal">
+    <div class="gallery-head">
+        <span id="galleryCount">1 / 1</span>
+        <button class="close-btn gallery-close" onclick="closeGallery()">&times;</button>
+    </div>
+    <div class="gallery-stage" id="galleryStage">
+        <button class="gallery-arrow gallery-prev" onclick="galleryStep(-1)" aria-label="上一张">‹</button>
+        <img id="galleryImg" src="" alt="">
+        <button class="gallery-arrow gallery-next" onclick="galleryStep(1)" aria-label="下一张">›</button>
+    </div>
+    <div class="gallery-thumbs" id="galleryThumbs"></div>
 </div>
 
 <script defer src="/frontend/js/app.js"></script>

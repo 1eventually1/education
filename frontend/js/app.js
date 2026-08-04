@@ -2,11 +2,14 @@ const API = window.location.origin;
 let me = null;
 let cwFilter = '';
 let hwFilter = '';
+let hwStudentFilter = '';
 let qaCache = [];
 let currentQuestionId = null;
 let selectedHomeworkFiles = [];
 let homeworkPreviewUrls = [];
 let homeworkUploading = false;
+let selectedQaFiles = [];
+let qaPreviewUrls = [];
 
 // ====== Auth ======
 window.onload = async () => {
@@ -32,6 +35,7 @@ function showApp(user) {
     tag.className = `role-badge ${user.role}`;
     document.getElementById('cwDate').value = todayValue();
     document.getElementById('cwUpload').classList.toggle('hidden', user.role !== 'teacher');
+    if (user.role === 'teacher') loadHomeworkStudents();
     switchTab('home');
 }
 
@@ -297,6 +301,30 @@ function filterHomeworks(subject) {
     loadHomeworks();
 }
 
+function filterHomeworkStudent(studentId) {
+    hwStudentFilter = studentId;
+    loadHomeworks();
+}
+
+async function loadHomeworkStudents() {
+    const select = document.getElementById('hwStudentFilter');
+    if (!select) return;
+    const r = await fetch(`${API}/api/students`, { credentials:'include' });
+    const d = await r.json();
+    const students = d.students || [];
+    select.classList.toggle('hidden', !students.length);
+    if (!students.length) return;
+    const previous = select.value;
+    select.innerHTML = [
+        '<option value="">全部学生</option>',
+        ...students.map(s => `<option value="${esc(String(s.id))}">${esc(s.name)}</option>`)
+    ].join('');
+    if ([...select.options].some(option => option.value === previous)) {
+        select.value = previous;
+        hwStudentFilter = previous;
+    }
+}
+
 function renderHomeworkFilter() {
     document.querySelectorAll('#hwSubjectFilter .subject-chip').forEach(chip => {
         const text = chip.textContent.trim();
@@ -387,14 +415,50 @@ async function loadHomeworks() {
     const el = document.getElementById('hwList');
     el.innerHTML = '<div class="empty-msg">加载中...</div>';
     renderHomeworkFilter();
-    const url = hwFilter ? `${API}/api/homeworks?subject=${encodeURIComponent(hwFilter)}` : `${API}/api/homeworks`;
+    const params = new URLSearchParams();
+    if (hwFilter) params.set('subject', hwFilter);
+    if (me.role === 'teacher' && hwStudentFilter) params.set('student_id', hwStudentFilter);
+    const url = params.toString() ? `${API}/api/homeworks?${params.toString()}` : `${API}/api/homeworks`;
     const r = await fetch(url, { credentials:'include' });
     const d = await r.json();
     if (!d.homeworks.length) {
-        el.innerHTML = `<div class="empty-msg">${hwFilter ? `暂无${esc(hwFilter)}作业记录` : '暂无作业记录'}</div>`;
+        const scope = [hwStudentFilter ? document.getElementById('hwStudentFilter').selectedOptions[0]?.textContent : '', hwFilter].filter(Boolean).join(' · ');
+        el.innerHTML = `<div class="empty-msg">${scope ? `暂无${esc(scope)}作业记录` : '暂无作业记录'}</div>`;
         return;
     }
-    el.innerHTML = `<div class="hw-grid">${d.homeworks.map(h => hwCard(h)).join('')}</div>`;
+    el.innerHTML = me.role === 'teacher' && !hwStudentFilter
+        ? renderHomeworkGroups(d.homeworks)
+        : `<div class="hw-grid">${d.homeworks.map(h => hwCard(h)).join('')}</div>`;
+    hydrateHwSummaries(d.homeworks);
+}
+
+function hydrateHwSummaries(homeworks) {
+    homeworks.forEach(item => {
+        if (!item.ai_summary) return;
+        const box = document.getElementById(`hw-summary-${item.id}`);
+        if (box) box.innerHTML = renderAnswer(item.ai_summary, { el: box });
+    });
+}
+
+function renderHomeworkGroups(homeworks) {
+    const groups = new Map();
+    homeworks.forEach(item => {
+        const key = `${item.student_id || ''}:${item.student_name || '未命名学生'}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(item);
+    });
+    return [...groups.entries()].map(([key, items]) => {
+        const name = key.split(':').slice(1).join(':') || '未命名学生';
+        const pending = items.filter(item => item.status !== '已批改' && item.status !== '已完成').length;
+        const imageCount = items.reduce((sum, item) => sum + (item.image_count || 0), 0);
+        return `<section class="hw-student-group">
+            <div class="hw-student-head">
+                <div><strong>${esc(name)}</strong><span>${items.length}份作业 · ${imageCount}张图片</span></div>
+                ${pending ? `<em>${pending}份待处理</em>` : '<em class="done">已处理</em>'}
+            </div>
+            <div class="hw-grid">${items.map(h => hwCard(h)).join('')}</div>
+        </section>`;
+    }).join('');
 }
 
 function hwCard(h) {
@@ -404,12 +468,14 @@ function hwCard(h) {
     const imageGridClass = images.length > 1 ? 'multi' : 'single';
     const imageGrid = `<div class="hw-image-grid ${imageGridClass}">
         ${images.map((filename, idx) => `
-            <button class="hw-image-thumb" onclick="openModal('${API}/uploads/${esc(filename)}')" title="查看第${idx + 1}张">
+            <button class="hw-image-thumb" onclick="openGallery(${galleryArg(images)}, ${idx})" title="查看第${idx + 1}张">
                 <img src="${API}/uploads/${esc(filename)}" alt="作业图片${idx + 1}" loading="lazy" decoding="async">
                 ${images.length > 1 ? `<span>${idx + 1}</span>` : ''}
             </button>
         `).join('')}
     </div>`;
+    const aiBtn = `<button id="hw-ai-btn-${h.id}" class="btn btn-muted btn-small" onclick="summarizeHomework('${h.id}')">${h.ai_summary ? '重新总结' : 'AI 总结'}</button>`;
+    const summaryBox = `<div id="hw-summary-${h.id}" class="hw-ai-summary"></div>`;
     const tools = me.role==='teacher' ? `
         <div class="hw-actions">
             <button class="btn btn-success btn-small" onclick="reviewHw('${h.id}','已批改')">通过</button>
@@ -417,11 +483,14 @@ function hwCard(h) {
             <button class="btn btn-danger btn-small" onclick="reviewHw('${h.id}','待修改')">需修改</button>
             ${deleteBtn}
         </div>
+        <div class="hw-actions" style="margin-top:6px;">${aiBtn}</div>
         <textarea id="cmt-${h.id}" class="form-group" style="margin-top:6px;min-height:50px;" placeholder="评语">${esc(h.comment||'')}</textarea>
         <button class="btn btn-primary btn-small btn-block" onclick="saveCmt('${h.id}')">保存评语</button>
+        ${summaryBox}
     ` : `
         ${h.comment ? `<p class="meta">评语：${esc(h.comment)}</p>` : ''}
-        <div class="hw-actions">${deleteBtn}</div>
+        <div class="hw-actions">${aiBtn}${deleteBtn}</div>
+        ${summaryBox}
     `;
     return `<div class="hw-card">
         ${imageGrid}
@@ -453,18 +522,127 @@ async function deleteHw(id) {
     toast(d.message||d.error, r.ok?'ok':'err');
 }
 
+async function summarizeHomework(id) {
+    const box = document.getElementById(`hw-summary-${id}`);
+    if (!box) return;
+    const btn = document.getElementById(`hw-ai-btn-${id}`);
+    box.innerHTML = '<div class="empty-msg" style="padding:8px 0;">AI 正在总结这份作业...</div>';
+    if (btn) btn.disabled = true;
+
+    try {
+        const r = await fetch(`${API}/api/homeworks/${id}/ai-summary`, { method:'POST', credentials:'include' });
+        if (!r.ok) {
+            const d = await r.json().catch(() => ({}));
+            box.innerHTML = '';
+            toast(d.error || '调用失败', 'err');
+            return;
+        }
+
+        const reader = r.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+        let rawText = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+
+            // 按 SSE 事件切分
+            const parts = buf.split('\n\n');
+            buf = parts.pop();
+
+            for (const block of parts) {
+                for (const line of block.split('\n')) {
+                    if (!line.startsWith('data: ')) continue;
+                    try {
+                        const d = JSON.parse(line.slice(6));
+                        if (d.t === 'c') {
+                            rawText += d.c;
+                            box.innerHTML = renderAnswer(rawText, { typeset: false });
+                        } else if (d.t === 'e') {
+                            box.innerHTML = renderAnswer(d.c, { el: box });
+                            if (btn) btn.textContent = 'AI 总结';
+                        } else if (d.t === 'r') {
+                            if (rawText) box.innerHTML = renderAnswer(rawText, { el: box });
+                            if (btn) btn.textContent = '重新总结';
+                        }
+                    } catch(e) {}
+                }
+            }
+        }
+
+        if (!rawText && buf) {
+            try {
+                const d = JSON.parse(buf.trim().replace(/^data: /, ''));
+                if (d.t === 'e') box.innerHTML = renderAnswer(d.c, { el: box });
+            } catch(e) {}
+        }
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
 // ====== QA ======
-function previewQa(e) {
-    const f = e.target.files[0]; if (!f) return;
-    document.getElementById('qaPreview').src = URL.createObjectURL(f);
-    document.getElementById('qaPreview').classList.remove('hidden');
+function revokeQaPreviewUrls() {
+    qaPreviewUrls.forEach(url => URL.revokeObjectURL(url));
+    qaPreviewUrls = [];
+}
+
+function renderQaPreview() {
+    const list = document.getElementById('qaPreviewList');
+    revokeQaPreviewUrls();
+    if (!selectedQaFiles.length) {
+        list.innerHTML = '';
+        list.classList.add('hidden');
+        document.getElementById('qaUploadHint').classList.remove('hidden');
+        return;
+    }
+    list.innerHTML = selectedQaFiles.map((file, idx) => {
+        const url = URL.createObjectURL(file);
+        qaPreviewUrls.push(url);
+        return `
+        <div class="hw-preview-item" onclick="event.stopPropagation()">
+            <img src="${url}" alt="题目图片${idx + 1}" loading="lazy" decoding="async">
+            <span>${idx + 1}</span>
+            <button type="button" class="hw-preview-remove" onclick="removeQaPreview(event, ${idx})">×</button>
+        </div>`;
+    }).join('');
+    list.classList.remove('hidden');
     document.getElementById('qaUploadHint').classList.add('hidden');
 }
 
+function removeQaPreview(event, index) {
+    event.stopPropagation();
+    selectedQaFiles.splice(index, 1);
+    renderQaPreview();
+}
+
+function clearQaSelection() {
+    selectedQaFiles = [];
+    document.getElementById('qaFile').value = '';
+    revokeQaPreviewUrls();
+    renderQaPreview();
+}
+
+function previewQa(e) {
+    const files = [...e.target.files];
+    if (!files.length) return;
+    for (const file of files) {
+        const exists = selectedQaFiles.some(item =>
+            item.name === file.name && item.size === file.size && item.lastModified === file.lastModified
+        );
+        if (!exists) selectedQaFiles.push(file);
+    }
+    e.target.value = '';
+    renderQaPreview();
+}
+
 async function askQuestion() {
-    const file = document.getElementById('qaFile').files[0];
+    const files = selectedQaFiles;
     const questionText = document.getElementById('qaText').value.trim();
-    if (!file && !questionText) return toast('请上传题目图片，或输入需要答疑的问题','err');
+    if (!files.length && !questionText) return toast('请上传题目图片，或输入需要答疑的问题','err');
+    if (files.length > 8) return toast('一次最多上传8张题目图片','err');
     const btn = document.getElementById('qaBtn');
     btn.disabled = true; btn.textContent = 'AI 正在解题...';
     document.getElementById('qaModel').textContent = '思考中';
@@ -474,11 +652,12 @@ async function askQuestion() {
     const fd = new FormData();
     fd.append('subject', document.getElementById('qaSubject').value);
     fd.append('question_text', questionText);
-    if (file) fd.append('file', file);
+    files.forEach(file => fd.append('files', file));
 
     try {
         const r = await fetch(`${API}/api/questions/ask`, { method:'POST', credentials:'include', body: fd });
         if (!r.ok) throw new Error((await r.json()).error || '请求失败');
+        clearQaSelection();
 
         const reader = r.body.getReader();
         const decoder = new TextDecoder();
@@ -570,7 +749,7 @@ function renderAnswer(text, options = {}) {
     h = h.replace(/<p><ul>/g, '<ul>').replace(/<\/ul><\/p>/g, '</ul>');
     h = h.replace(/<\/li>(?:<br>\s*)+<li>/g, '</li><li>');
     h = h.replace(/<ul>(?:<br>\s*)+/g, '<ul>').replace(/(?:<br>\s*)+<\/ul>/g, '</ul>');
-    if (options.typeset !== false) scheduleMathTypeset();
+    if (options.typeset !== false) scheduleMathTypeset(options.el);
     return h;
 }
 
@@ -584,11 +763,17 @@ function renderThinkingStatus(text) {
 }
 
 let mathTypesetTimer = null;
-function scheduleMathTypeset() {
+function scheduleMathTypeset(el) {
     clearTimeout(mathTypesetTimer);
     mathTypesetTimer = setTimeout(() => {
         if (window.MathJax?.typesetPromise) {
-            window.MathJax.typesetPromise([document.getElementById('qaAnswer')]).catch(() => {});
+            // 默认对整个文档 typeset：答疑、追问、作业总结、学习报告等所有
+            // 动态插入的 LaTeX 都能渲染，不依赖调用方记住传容器元素。
+            if (el) {
+                window.MathJax.typesetPromise([el]).catch(() => {});
+            } else {
+                window.MathJax.typesetPromise().catch(() => {});
+            }
         }
     }, 80);
 }
@@ -1003,10 +1188,11 @@ function formatQaDayLabel(key) {
 function qaHistoryRow(q) {
     const time = (q.created_at || '').slice(11, 16) || '--:--';
     const title = q.question_text || '图片答疑';
+    const imageCount = q.image_count || (q.filenames?.length || (q.filename ? 1 : 0));
     return `
         <div class="history-row" onclick="viewAnswer('${q.id}')">
             <h4>${esc(time)} · ${esc(q.subject)} · ${esc(q.student_name)}</h4>
-            <p>${esc(title)} · 模型：${esc(q.model_name || '未配置/未保存')} · 追问 ${q.followups?.length || 0}</p>
+            <p>${esc(title)} · ${imageCount ? `${imageCount}张图 · ` : ''}模型：${esc(q.model_name || '未配置/未保存')} · 追问 ${q.followups?.length || 0}</p>
             ${q.answer ? `<p>${esc(q.answer).slice(0, 80)}${q.answer.length > 80 ? '...' : ''}</p>` : '<p>回答内容未保存，建议重新提交这道题。</p>'}
         </div>
     `;
@@ -1025,7 +1211,8 @@ async function viewAnswer(id) {
 }
 
 function renderQuestionConversation(q) {
-    let html = q.answer ? renderAnswer(q.answer) : '<p>该记录暂无回答内容，可能是之前流式中断导致未保存。</p>';
+    let html = renderQaImages(q);
+    html += q.answer ? renderAnswer(q.answer) : '<p>该记录暂无回答内容，可能是之前流式中断导致未保存。</p>';
     for (const item of (q.followups || [])) {
         html += `
             <div class="followup-entry">
@@ -1036,6 +1223,19 @@ function renderQuestionConversation(q) {
         `;
     }
     return html;
+}
+
+function renderQaImages(q) {
+    const images = (q.filenames && q.filenames.length ? q.filenames : [q.filename]).filter(Boolean);
+    if (!images.length) return '';
+    return `<div class="qa-image-strip">
+        ${images.map((filename, idx) => `
+            <button class="hw-image-thumb" onclick="openGallery(${galleryArg(images)}, ${idx})" title="查看第${idx + 1}张题目图">
+                <img src="${API}/uploads/${esc(filename)}" alt="题目图片${idx + 1}" loading="lazy" decoding="async">
+                ${images.length > 1 ? `<span>${idx + 1}</span>` : ''}
+            </button>
+        `).join('')}
+    </div>`;
 }
 
 function showFollowupBox(id) {
@@ -1147,8 +1347,86 @@ function formatDateLabel(value) {
 }
 function esc(s) { return String(s??'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function toast(msg, type) { const t = document.createElement('div'); t.className=`toast ${type}`; t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(),2600); }
-function openModal(src) { document.getElementById('modalImg').src=src; document.getElementById('imgModal').classList.add('open'); }
-function closeModal() { document.getElementById('imgModal').classList.remove('open'); }
+// ====== 图集查看器（微信相册式，多图左右切换） ======
+let galleryImages = [];
+let galleryIndex = 0;
+let galleryTouchStartX = null;
+
+function galleryArg(filenames) {
+    return `[${filenames.map(f => `'${f}'`).join(',')}]`;
+}
+
+function openGallery(filenames, startIndex) {
+    galleryImages = (filenames || []).filter(Boolean).map(f => `${API}/uploads/${esc(f)}`);
+    if (!galleryImages.length) return;
+    galleryIndex = Math.max(0, Math.min(Number(startIndex) || 0, galleryImages.length - 1));
+    const thumbs = document.getElementById('galleryThumbs');
+    thumbs.innerHTML = galleryImages.map((src, i) =>
+        `<img src="${src}" alt="第${i + 1}张" class="${i === galleryIndex ? 'active' : ''}" onclick="galleryJump(${i})">`
+    ).join('');
+    renderGalleryImage();
+    document.getElementById('galleryModal').classList.add('open');
+    document.body.style.overflow = 'hidden';
+    // 让当前缩略图滚到可见位置
+    const activeThumb = thumbs.children[galleryIndex];
+    if (activeThumb && activeThumb.scrollIntoView) activeThumb.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+
+function renderGalleryImage() {
+    if (!galleryImages.length) return;
+    const img = document.getElementById('galleryImg');
+    img.src = galleryImages[galleryIndex];
+    img.alt = `第${galleryIndex + 1}张，共${galleryImages.length}张`;
+    document.getElementById('galleryCount').textContent = `${galleryIndex + 1} / ${galleryImages.length}`;
+    const thumbs = document.getElementById('galleryThumbs');
+    [...thumbs.children].forEach((t, i) => t.classList.toggle('active', i === galleryIndex));
+    // 预加载相邻两张，切换更顺滑
+    [galleryIndex - 1, galleryIndex + 1].forEach(i => {
+        if (i >= 0 && i < galleryImages.length) {
+            const pre = new Image();
+            pre.src = galleryImages[i];
+        }
+    });
+}
+
+function galleryStep(delta) {
+    const next = galleryIndex + delta;
+    if (next < 0 || next >= galleryImages.length) return;
+    galleryIndex = next;
+    renderGalleryImage();
+}
+
+function galleryJump(index) {
+    if (index < 0 || index >= galleryImages.length) return;
+    galleryIndex = index;
+    renderGalleryImage();
+}
+
+function closeGallery() {
+    document.getElementById('galleryModal').classList.remove('open');
+    document.body.style.overflow = '';
+    document.getElementById('galleryImg').src = '';
+}
+
+// 键盘 ←/→/Esc
+document.addEventListener('keydown', (e) => {
+    if (!document.getElementById('galleryModal').classList.contains('open')) return;
+    if (e.key === 'ArrowLeft') galleryStep(-1);
+    else if (e.key === 'ArrowRight') galleryStep(1);
+    else if (e.key === 'Escape') closeGallery();
+});
+
+// 手机滑动切换
+const galleryStage = document.getElementById('galleryStage');
+galleryStage.addEventListener('touchstart', (e) => {
+    galleryTouchStartX = e.changedTouches[0].clientX;
+}, { passive: true });
+galleryStage.addEventListener('touchend', (e) => {
+    if (galleryTouchStartX === null) return;
+    const dx = e.changedTouches[0].clientX - galleryTouchStartX;
+    galleryTouchStartX = null;
+    if (Math.abs(dx) > 40) galleryStep(dx < 0 ? 1 : -1);
+}, { passive: true });
 
 document.addEventListener('keydown', e => {
     if (e.key==='Enter' && !document.getElementById('authPage').classList.contains('hidden')) {

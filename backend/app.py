@@ -41,6 +41,7 @@ ALLOWED_COURSEWARE = {'pdf', 'ppt', 'pptx', 'doc', 'docx', 'jpg', 'jpeg', 'png'}
 ALLOWED_SUBJECTS = {'数学', '物理', '化学', '英语'}
 MAX_FILE_SIZE = 20 * 1024 * 1024
 MAX_HOMEWORK_IMAGES = 30
+MAX_QA_IMAGES = 8
 HOMEWORK_IMAGE_MAX_SIDE = 1800
 HOMEWORK_IMAGE_QUALITY = 82
 APP_TIMEZONE = os.getenv('APP_TIMEZONE', 'Asia/Shanghai')
@@ -79,6 +80,7 @@ class Homework(db.Model):
     upload_time = db.Column(db.String(30), nullable=False)
     status = db.Column(db.String(20), default='待批改')
     comment = db.Column(db.Text, default='')
+    ai_summary = db.Column(db.Text, default='')
     reviewed_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
 
 class Question(db.Model):
@@ -123,6 +125,10 @@ with app.app_context():
     cw_columns = {col['name'] for col in inspect(db.engine).get_columns('coursewares')}
     if 'course_date' not in cw_columns:
         db.session.execute(text('ALTER TABLE coursewares ADD COLUMN course_date VARCHAR(20)'))
+        db.session.commit()
+    hw_columns = {col['name'] for col in inspect(db.engine).get_columns('homeworks')}
+    if 'ai_summary' not in hw_columns:
+        db.session.execute(text('ALTER TABLE homeworks ADD COLUMN ai_summary TEXT'))
         db.session.commit()
     for username, pwd, role, display in [
         ('eventually', 'eventually', 'teacher', 'eventually'),
@@ -189,10 +195,25 @@ def homework_filenames(h):
         pass
     return [h.filename]
 
+def stored_filenames(value):
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+        if isinstance(parsed, list):
+            return [str(item) for item in parsed if item]
+    except (TypeError, ValueError):
+        pass
+    return [value]
+
+def question_filenames(q):
+    return stored_filenames(q.filename)
+
 def ser_hw(h):
     filenames = homework_filenames(h)
     return {
         'id': h.uid,
+        'student_id': h.student_id,
         'student_name': h.student_name,
         'subject': h.subject,
         'filename': filenames[0] if filenames else '',
@@ -200,16 +221,20 @@ def ser_hw(h):
         'image_count': len(filenames),
         'upload_time': h.upload_time,
         'status': h.status,
-        'comment': h.comment
+        'comment': h.comment,
+        'ai_summary': h.ai_summary or ''
     }
 
 def ser_qa(q):
     followups = QuestionFollowup.query.filter_by(question_id=q.id).order_by(QuestionFollowup.id.asc()).all()
+    filenames = question_filenames(q)
     return {
         'id': q.uid,
         'student_name': q.student_name,
         'subject': q.subject,
-        'filename': q.filename,
+        'filename': filenames[0] if filenames else '',
+        'filenames': filenames,
+        'image_count': len(filenames),
         'question_text': q.question_text,
         'answer': q.answer,
         'model_name': q.model_name,
@@ -270,8 +295,12 @@ def build_payload_from_prompt(image_path, prompt):
 
     content = [{'type': 'text', 'text': prompt}]
     if image_path:
-        mime_type, encoded = encode_image_for_llm(image_path)
-        content.append({'type': 'image_url', 'image_url': {'url': f'data:{mime_type};base64,{encoded}'}})
+        image_paths = image_path if isinstance(image_path, (list, tuple)) else [image_path]
+        for item in image_paths:
+            if not item:
+                continue
+            mime_type, encoded = encode_image_for_llm(item)
+            content.append({'type': 'image_url', 'image_url': {'url': f'data:{mime_type};base64,{encoded}'}})
 
     high_accuracy = env_flag('LLM_HIGH_ACCURACY', '1')
     payload = {
@@ -406,12 +435,14 @@ def normalize_homework_upload(path):
     return {'rotate': rotate, 'confidence': confidence}
 
 def build_vision_payload(image_path, subject, question_text):
-    input_mode = '题目图片 + 文字补充' if image_path else '纯文字问题'
+    image_count = len(image_path) if isinstance(image_path, (list, tuple)) else (1 if image_path else 0)
+    input_mode = f'{image_count}张题目图片 + 文字补充' if image_count else '纯文字问题'
     prompt = (
         '你是一位高效、准确的高中学习导师，擅长数学、物理、化学和英语。'
         '请严格按学生选择的科目解答；如果题目内容和所选科目明显不一致，要先指出并按题目实际内容谨慎说明。\n'
         '请根据学生提供的图片或文字问题解答，要求：\n'
-        '1. 如果有图片，先识别题目图片；如果没有图片，就直接根据文字问题回答。不要要求学生必须上传图片。\n'
+        '1. 如果有图片，先按顺序识别所有题目图片；多张图片可能是同一道题的正反面、上下页或续题条件，必须合并理解。'
+        '如果没有图片，就直接根据文字问题回答。不要要求学生必须上传图片。\n'
         '2. 不要长篇复述题干，只提取解题必须信息；图片不清楚或文字条件不足时直接指出需要补充什么。\n'
         '3. 必须展示给学生看的推理过程：条件提取、公式/原理/语法点选择、关键判断、必要计算或翻译依据。\n'
         '4. 选择题只分析关键选项；计算题保留关键公式和代入过程。\n'
@@ -447,8 +478,25 @@ def build_followup_payload(question, followups, prompt):
         '## 推理过程\n解释关键原因、条件怎么用、必要推理或计算。\n\n'
         '## 小提醒\n一句话指出容易混淆点。'
     )
-    image_path = os.path.join(UPLOAD_FOLDER, question.filename) if question.filename else None
-    return build_payload_from_prompt(image_path, full_prompt)
+    image_paths = [os.path.join(UPLOAD_FOLDER, filename) for filename in question_filenames(question)]
+    return build_payload_from_prompt(image_paths, full_prompt)
+
+def build_homework_summary_payload(hw):
+    image_paths = [os.path.join(UPLOAD_FOLDER, filename) for filename in homework_filenames(hw)]
+    prompt = (
+        '你是一位细心的中学老师。学生提交了一份%s作业的照片，请按顺序查看所有图片，给出一份批改总结。要求：\n'
+        '1. 识别这份作业：做的是哪部分知识、共几道题、完成情况（全部完成/部分完成/基本没写）。\n'
+        '2. 逐题简要判断对错，列出做错的题和出错原因（计算/概念/审题/书写）。\n'
+        '3. 概括学生的薄弱点和掌握得较好的部分。\n'
+        '4. 给老师一句批改建议，再给学生一条最该改进的点。\n'
+        '图片看不清或内容不确定时要如实说明，不要编造。\n'
+        '请用简洁的 markdown 结构输出：\n'
+        '## 完成情况\n'
+        '## 对错分析\n'
+        '## 薄弱点\n'
+        '## 建议' % hw.subject
+    )
+    return build_payload_from_prompt(image_paths, prompt)
 
 def post_llm_stream(base_url, api_key, payload):
     try:
@@ -1051,13 +1099,30 @@ def delete_courseware(uid):
 @login_required
 def get_homeworks():
     subject = request.args.get('subject', '').strip()
+    student_id = request.args.get('student_id', '').strip()
     user = User.query.get(session['user_id'])
     if subject and subject not in ALLOWED_SUBJECTS:
         return jsonify({'error': '科目仅支持数学、物理、化学、英语'}), 400
     q = Homework.query
     if user.role == 'student': q = q.filter_by(student_id=user.id)
+    elif student_id:
+        if not student_id.isdigit():
+            return jsonify({'error': '学生筛选无效'}), 400
+        q = q.filter_by(student_id=int(student_id))
     if subject: q = q.filter_by(subject=subject)
     return jsonify({'homeworks': [ser_hw(h) for h in q.order_by(Homework.id.desc()).all()]})
+
+@app.route('/api/students', methods=['GET'])
+@login_required
+def get_students():
+    user = User.query.get(session['user_id'])
+    if user.role != 'teacher':
+        return jsonify({'students': []})
+    students = [
+        {'id': item.id, 'name': item.display_name or item.username, 'username': item.username}
+        for item in User.query.filter_by(role='student').order_by(User.id.asc()).all()
+    ]
+    return jsonify({'students': students})
 
 @app.route('/api/homeworks/upload', methods=['POST'])
 @login_required
@@ -1080,11 +1145,6 @@ def upload_homework():
         ext = (file.filename.rsplit('.', 1)[-1] if '.' in file.filename else 'jpg').lower()
         if ext not in ALLOWED_IMAGE:
             return jsonify({'error': '仅支持图片格式'}), 400
-
-        file.seek(0, os.SEEK_END)
-        if file.tell() > MAX_FILE_SIZE:
-            return jsonify({'error': f'单张图片不能超过{MAX_FILE_SIZE//1024//1024}MB'}), 400
-        file.seek(0)
 
     saved_names = []
     orientations = []
@@ -1149,6 +1209,51 @@ def delete_homework(uid):
             app.logger.warning('delete homework file failed: %s', e)
     return jsonify({'message': '已删除打卡作业'})
 
+@app.route('/api/homeworks/<uid>/ai-summary', methods=['POST'])
+@login_required
+def summarize_homework(uid):
+    user = User.query.get(session['user_id'])
+    hw = Homework.query.filter_by(uid=uid).first()
+    if not hw:
+        return jsonify({'error': '未找到'}), 404
+    if user.role == 'student' and hw.student_id != user.id:
+        return jsonify({'error': '只能总结自己的作业'}), 403
+
+    def generate():
+        full_summary = ''
+        final_model = os.getenv('LLM_MODEL', 'qwen3.7-plus')
+        had_error = False
+        for event in stream_payload(lambda: build_homework_summary_payload(hw)):
+            if event.startswith('data: '):
+                try:
+                    data = json.loads(event[6:])
+                    if data.get('t') == 'c':
+                        full_summary += data.get('c', '')
+                    elif data.get('t') == 'd':
+                        final_model = data.get('m', final_model)
+                        if data.get('f') and not full_summary:
+                            full_summary = data.get('f', '')
+                    elif data.get('t') == 'e':
+                        full_summary = data.get('c', '')
+                        had_error = True
+                        if '未配置大模型' in full_summary:
+                            final_model = '未配置'
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            yield event
+
+        # 出错时不落库，避免把报错信息当总结存起来。
+        # 必须在 generator 内重新查询记录再提交：流式输出时这里的 db.session
+        # 与请求开始时加载 hw 的那个会话不是同一个，直接改 hw 不会落库。
+        if not had_error:
+            record = Homework.query.filter_by(uid=hw.uid).first()
+            if record:
+                record.ai_summary = full_summary
+                db.session.commit()
+        yield f"data: {json.dumps({'t': 'r', 'id': hw.uid, 'm': final_model}, ensure_ascii=False)}\n\n"
+
+    return Response(stream_with_context(generate()), mimetype='text/event-stream')
+
 # ====== 拍照答疑 ======
 
 @app.route('/api/questions', methods=['GET'])
@@ -1165,32 +1270,50 @@ def ask_question():
     user = User.query.get(session['user_id'])
     subject = request.form.get('subject', '化学').strip()
     question_text = request.form.get('question_text', '').strip()
-    file = request.files.get('file')
+    files = request.files.getlist('files')
+    if not files:
+        files = request.files.getlist('file')
+    files = [file for file in files if file and file.filename]
     if subject not in ALLOWED_SUBJECTS:
         return jsonify({'error': '科目仅支持数学、物理、化学、英语'}), 400
-    if not file and not question_text:
+    if not files and not question_text:
         return jsonify({'error': '请上传题目图片，或输入需要答疑的问题'}), 400
+    if len(files) > MAX_QA_IMAGES:
+        return jsonify({'error': f'一次最多上传{MAX_QA_IMAGES}张题目图片'}), 400
 
-    safe_name = ''
-    filepath = None
-    if file:
+    for file in files:
         ext = (file.filename.rsplit('.', 1)[-1] if '.' in file.filename else 'jpg').lower()
         if ext not in ALLOWED_IMAGE: return jsonify({'error': '仅支持图片'}), 400
         file.seek(0, os.SEEK_END)
-        if file.tell() > MAX_FILE_SIZE: return jsonify({'error': f'文件不能超过{MAX_FILE_SIZE//1024//1024}MB'}), 400
+        if file.tell() > MAX_FILE_SIZE: return jsonify({'error': f'单张图片不能超过{MAX_FILE_SIZE//1024//1024}MB'}), 400
         file.seek(0)
 
-        safe_name = f"qa_{uuid.uuid4().hex}.{ext}"
-        filepath = os.path.join(UPLOAD_FOLDER, safe_name)
-        file.save(filepath)
+    saved_names = []
+    filepaths = []
+    try:
+        for file in files:
+            ext = (file.filename.rsplit('.', 1)[-1] if '.' in file.filename else 'jpg').lower()
+            safe_name = f"qa_{uuid.uuid4().hex}.{ext}"
+            filepath = os.path.join(UPLOAD_FOLDER, safe_name)
+            file.save(filepath)
+            saved_names.append(safe_name)
+            filepaths.append(filepath)
+    except Exception:
+        for name in saved_names:
+            try:
+                os.remove(os.path.join(UPLOAD_FOLDER, name))
+            except OSError:
+                pass
+        raise
 
     record_uid = uuid.uuid4().hex[:8]
     now = utc_now_text()
+    filename_value = saved_names[0] if len(saved_names) == 1 else (json.dumps(saved_names, ensure_ascii=False) if saved_names else '')
 
     # Save placeholder record first
     q = Question(uid=record_uid, student_id=session['user_id'],
                  student_name=user.display_name or user.username, subject=subject,
-                 filename=safe_name, question_text=question_text,
+                 filename=filename_value, question_text=question_text,
                  answer='', model_name='',
                  created_at=now)
     db.session.add(q)
@@ -1199,7 +1322,7 @@ def ask_question():
     def generate():
         full_answer = ''
         final_model = os.getenv('LLM_MODEL', 'qwen3.7-plus')
-        for event in ask_vision_model_stream(filepath, subject, question_text):
+        for event in ask_vision_model_stream(filepaths, subject, question_text):
             # Parse the SSE event to accumulate answer
             if event.startswith('data: '):
                 try:
